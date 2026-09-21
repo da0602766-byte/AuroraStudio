@@ -69,10 +69,10 @@ export default async function BookingDetail({ params }: { params: { id: string }
             <h2 className="text-xl">Ações</h2>
             <div className="flex flex-wrap gap-2">
               {b.status === "AGUARDANDO_PAGAMENTO" && b.depositCents > 0 && (
-                <form action={confirmDeposit}>
+                <ActionForm action={confirmDeposit}>
                   <input type="hidden" name="id" value={b.id} />
                   <SubmitButton className="btn-primario btn-pequeno" pendingText="Confirmando…">Recebi o sinal de {brl(b.depositCents)}</SubmitButton>
-                </form>
+                </ActionForm>
               )}
               {b.status === "AGUARDANDO_PAGAMENTO" && (
                 <StatusForm id={b.id} action="confirmar" label="Confirmar sem sinal" />
@@ -89,7 +89,7 @@ export default async function BookingDetail({ params }: { params: { id: string }
             </div>
 
             {active && (
-              <form action={changeBookingStatus} className="flex flex-col gap-2 border-t border-linha pt-4 sm:flex-row sm:items-end">
+              <ActionForm action={changeBookingStatus} className="flex flex-col gap-2 border-t border-linha pt-4 sm:flex-row sm:items-end">
                 <input type="hidden" name="id" value={b.id} />
                 <input type="hidden" name="action" value="cancelar" />
                 <div className="flex-1">
@@ -99,7 +99,7 @@ export default async function BookingDetail({ params }: { params: { id: string }
                 <SubmitButton className="btn-contorno btn-pequeno" pendingText="Cancelando…" confirm="Cancelar esta reserva e liberar o horário?">
                   Cancelar
                 </SubmitButton>
-              </form>
+              </ActionForm>
             )}
           </section>
 
@@ -144,7 +144,7 @@ export default async function BookingDetail({ params }: { params: { id: string }
                 ))}
               </ul>
             )}
-            <form action={registerPayment} className="mt-4 grid gap-3 border-t border-linha pt-4 sm:grid-cols-4 sm:items-end">
+            <ActionForm action={registerPayment} className="mt-4 grid gap-3 border-t border-linha pt-4 sm:grid-cols-4 sm:items-end">
               <input type="hidden" name="id" value={b.id} />
               <div>
                 <label htmlFor="amount" className="rotulo">Valor recebido</label>
@@ -163,7 +163,7 @@ export default async function BookingDetail({ params }: { params: { id: string }
                 </select>
               </div>
               <SubmitButton className="btn-contorno btn-pequeno" pendingText="Registrando…">Registrar pagamento</SubmitButton>
-            </form>
+            </ActionForm>
           </section>
         </div>
 
@@ -211,12 +211,12 @@ export default async function BookingDetail({ params }: { params: { id: string }
 
 function StatusForm({ id, action, label, primary, confirm }: { id: string; action: string; label: string; primary?: boolean; confirm?: string }) {
   return (
-    <form action={changeBookingStatus}>
+    <ActionForm action={changeBookingStatus}>
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="action" value={action} />
       <SubmitButton className={`${primary ? "btn-primario" : "btn-contorno"} btn-pequeno`} pendingText="Salvando…" confirm={confirm}>
         {label}
       </SubmitButton>
-    </form>
+    </ActionForm>
   );
 }

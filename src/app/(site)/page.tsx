@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getDefaultProfessional, getSettings } from "@/lib/settings";
+import { cacheSite } from "@/lib/cache";
 import { scheduleLines } from "@/lib/schedule";
 import { brl, durationLabel, effectivePrice, priceLabel } from "@/lib/format";
 import { waLink } from "@/lib/whatsapp";
@@ -9,11 +10,14 @@ import { BrowArc } from "@/components/site/BrowArc";
 import { Photo } from "@/components/site/Photo";
 import { Stars } from "@/components/site/Stars";
 
-export default async function HomePage() {
-  const s = await getSettings();
-  const pro = await getDefaultProfessional();
+/**
+ * Tudo o que a página inicial mostra, numa consulta só e guardada em cache.
+ * Antes eram oito idas ao banco a cada visita.
+ */
+const loadHome = cacheSite(async () => {
+  const [s, pro] = await Promise.all([getSettings(), getDefaultProfessional()]);
 
-  const [categories, featured, reviews, faqs, slots] = await Promise.all([
+  const [categories, featured, reviews, faqs, slots, uncategorized] = await Promise.all([
     prisma.category.findMany({
       orderBy: { order: "asc" },
       include: { services: { where: { active: true }, orderBy: { order: "asc" } } },
@@ -29,12 +33,15 @@ export default async function HomePage() {
     }),
     prisma.faq.findMany({ orderBy: { order: "asc" } }),
     prisma.workingSlot.findMany({ where: { professionalId: pro.id, active: true } }),
+    prisma.service.findMany({ where: { active: true, categoryId: null }, orderBy: { order: "asc" } }),
   ]);
 
-  const uncategorized = await prisma.service.findMany({
-    where: { active: true, categoryId: null },
-    orderBy: { order: "asc" },
-  });
+  return { s, categories, featured, reviews, faqs, slots, uncategorized };
+}, ["pagina-inicial"]);
+
+export default async function HomePage() {
+  const { s, categories, featured, reviews, faqs, slots, uncategorized } = await loadHome();
+
   const groups = [
     ...categories.filter((c) => c.services.length),
     ...(uncategorized.length ? [{ id: "outros", name: "Outros", services: uncategorized }] : []),

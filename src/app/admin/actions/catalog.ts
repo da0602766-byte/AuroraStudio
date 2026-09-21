@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
+import { SITE_TAG } from "@/lib/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
@@ -19,6 +20,7 @@ const str = (v: FormDataEntryValue | null, max = 2000) => String(v ?? "").trim()
 
 function revalidateSite() {
   revalidatePath("/", "layout");
+  revalidateTag(SITE_TAG); // derruba o cache das consultas do site
 }
 
 // ─── Serviços ───────────────────────────────────────────────────────

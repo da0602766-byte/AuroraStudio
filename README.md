@@ -54,6 +54,9 @@ Como o sinal funciona na Fase 1 (sem gateway):
 - Senha com bcrypt; sessão em cookie `httpOnly`; trocar a senha encerra as outras sessões.
 - Limite de tentativas no login, no agendamento e na consulta; campo-armadilha contra robôs.
 - Fotos verificadas pelo conteúdo do arquivo, não só pela extensão.
+- Sessão verificada com algoritmo fixo (HS256) e mesmo segredo mínimo na middleware e no servidor.
+- Cabeçalhos `Content-Security-Policy` e `Strict-Transport-Security`; painel e página da reserva com `no-store`.
+- Reabrir uma reserva ou confirmar o sinal de uma reserva cancelada refaz a checagem de conflito dentro da trava da agenda.
 
 ## Instalação local
 
@@ -62,7 +65,7 @@ Requisitos: Node.js 18.18 ou mais novo e um banco PostgreSQL (local ou gratuito 
 ```bash
 npm install
 cp .env.example .env        # preencha os valores
-npm run db:push             # cria as tabelas
+npm run db:migrate          # cria as tabelas a partir das migrations
 npm run db:seed             # serviços, horários, regras e acesso da proprietária
 npm run dev                 # http://localhost:3000  e  http://localhost:3000/admin
 ```
@@ -71,7 +74,50 @@ Antes de publicar, confira:
 
 ```bash
 npm run typecheck
+npm run test
+npm run lint
 npm run build
+```
+
+## Testes
+
+```bash
+npm run test          # roda uma vez
+npm run test:watch    # reexecuta ao salvar
+```
+
+Cobrem a lógica pura, que é onde um erro passa despercebido: conversão de fuso
+(`time.ts`), montagem da disponibilidade (`availability.ts`), dinheiro e
+telefone (`format.ts`) e o agrupamento dos horários exibidos (`schedule.ts`).
+Os testes de disponibilidade usam um banco de mentira, então rodam sem
+PostgreSQL. Ficam em `src/lib/__tests__/`, no runner do próprio Node.
+
+## Cache do site
+
+As páginas públicas são renderizadas a cada visita, mas as consultas ficam
+guardadas por 5 minutos (`src/lib/cache.ts`). Toda ação do painel que muda
+conteúdo do site derruba esse cache na hora, então a proprietária vê a
+alteração imediatamente. Agenda, página da reserva e consulta por código nunca
+são cacheadas.
+
+Ao criar uma consulta nova para o site público, use `cacheSite(...)` e garanta
+que a ação que altera esses dados passe por `revalidateSite()` / `done()`.
+
+## Mudanças no banco
+
+O schema é versionado em `prisma/migrations`. Para mudar uma tabela, edite
+`prisma/schema.prisma` e rode `npx prisma migrate dev --name descricao-curta`:
+o Prisma gera o SQL, aplica no banco local e guarda o arquivo no repositório.
+Em produção, `npm run db:migrate` aplica o que ainda faltar.
+
+`npm run db:push` continua existindo para experimentar num banco descartável,
+mas não deixa registro — não use em produção.
+
+**Banco que já existe e foi criado com `db:push`:** marque a migration inicial
+como aplicada uma única vez, senão o Prisma tenta recriar tudo:
+
+```bash
+npx prisma migrate resolve --applied 0_init
 ```
 
 ## Publicação (sugestão: Vercel + Neon + Vercel Blob)
@@ -80,7 +126,7 @@ npm run build
 2. Envie o projeto para um repositório no GitHub e importe na [Vercel](https://vercel.com).
 3. Na Vercel, em **Storage**, crie um **Blob Store** e conecte ao projeto (isso cria `BLOB_READ_WRITE_TOKEN`).
 4. Em **Settings → Environment Variables**, cadastre `DATABASE_URL`, `AUTH_SECRET` (gere com `openssl rand -base64 48`) e `NEXT_PUBLIC_SITE_URL`.
-5. No computador, com a `DATABASE_URL` de produção no `.env`, rode `npm run db:push` e `npm run db:seed`.
+5. No computador, com a `DATABASE_URL` de produção no `.env`, rode `npm run db:migrate` e `npm run db:seed`.
 6. Faça o deploy e conecte o domínio.
 
 > Atenção: o plano gratuito (Hobby) da Vercel é apenas para uso não comercial. Para o site de um negócio, use o plano Pro ou outra hospedagem compatível com Next.js (Railway, Render, Netlify).

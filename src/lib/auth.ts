@@ -3,15 +3,9 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createHash } from "crypto";
 import { prisma } from "./db";
+import { authSecret, JWT_ALGORITHMS, SESSION_COOKIE, SESSION_DAYS } from "./session";
 
-export const SESSION_COOKIE = "aurora_admin";
-const SESSION_DAYS = 7;
-
-export function authSecret(): Uint8Array {
-  const s = process.env.AUTH_SECRET;
-  if (!s || s.length < 32) throw new Error("AUTH_SECRET ausente ou curto (mínimo 32 caracteres).");
-  return new TextEncoder().encode(s);
-}
+export { authSecret, SESSION_COOKIE };
 
 /** Impressão da senha: ao trocar a senha, sessões antigas deixam de valer. */
 function passwordVersion(passwordHash: string) {
@@ -43,7 +37,7 @@ export async function getAdmin() {
   const token = cookies().get(SESSION_COOKIE)?.value;
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, authSecret());
+    const { payload } = await jwtVerify(token, authSecret(), { algorithms: [...JWT_ALGORITHMS] });
     if (!payload.sub) return null;
     const user = await prisma.adminUser.findUnique({ where: { id: payload.sub } });
     if (!user || payload.pv !== passwordVersion(user.passwordHash)) return null;

@@ -8,6 +8,7 @@ import { waLink } from "@/lib/whatsapp";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { SubmitButton } from "@/components/admin/Buttons";
 import { confirmDeposit } from "../actions/bookings";
+import { ActionForm } from "@/components/admin/ActionForm";
 
 export default async function Dashboard() {
   await expireStaleHolds(prisma);
@@ -130,12 +131,12 @@ export default async function Dashboard() {
                       {b.proofSentAt ? " — comprovante informado" : b.holdExpiresAt ? ` — expira ${fmt(b.holdExpiresAt, "HH:mm")}` : ""}
                     </span>
                   </Link>
-                  <form action={confirmDeposit}>
+                  <ActionForm action={confirmDeposit}>
                     <input type="hidden" name="id" value={b.id} />
                     <SubmitButton className="btn-primario btn-pequeno" pendingText="Confirmando…">
                       Recebi {brl(b.depositCents)}
                     </SubmitButton>
-                  </form>
+                  </ActionForm>
                 </li>
               ))}
             </ul>

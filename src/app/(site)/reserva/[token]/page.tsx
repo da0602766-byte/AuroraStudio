@@ -12,6 +12,9 @@ import { CancelButton, CopyButton, ProofButton, ReviewForm } from "@/components/
 
 export const metadata: Metadata = { title: "Sua reserva", robots: { index: false, follow: false } };
 
+// Dados de uma reserva específica, incluindo ficha de saúde: nunca cacheada.
+export const dynamic = "force-dynamic";
+
 export default async function ReservationPage({
   params,
   searchParams,

@@ -30,14 +30,23 @@ export async function expireStaleHolds(db: Db) {
     select: { id: true },
   });
   if (!stale.length) return;
-  const ids = stale.map((b) => b.id);
-  const res = await db.booking.updateMany({
-    where: { id: { in: ids }, status: "AGUARDANDO_PAGAMENTO", holdExpiresAt: { lt: now } },
-    data: { status: "CANCELADO", cancelledAt: now, cancelReason: "O prazo para pagamento do sinal terminou." },
-  });
-  if (res.count) {
+
+  // Cada reserva é cancelada individualmente e só gera evento se a atualização
+  // realmente aconteceu. Sem isso, uma reserva confirmada no painel entre a
+  // consulta e a atualização ganharia um "cancelada automaticamente" falso no
+  // histórico.
+  const expired: string[] = [];
+  for (const { id } of stale) {
+    const res = await db.booking.updateMany({
+      where: { id, status: "AGUARDANDO_PAGAMENTO", holdExpiresAt: { lt: now } },
+      data: { status: "CANCELADO", cancelledAt: now, cancelReason: "O prazo para pagamento do sinal terminou." },
+    });
+    if (res.count) expired.push(id);
+  }
+
+  if (expired.length) {
     await db.bookingEvent.createMany({
-      data: ids.map((bookingId) => ({
+      data: expired.map((bookingId) => ({
         bookingId,
         type: "EXPIRADA",
         message: "Reserva cancelada automaticamente: o sinal não foi informado dentro do prazo.",

@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { prisma } from "./db";
+import { cacheSite } from "./cache";
 
 export const getSettings = cache(async () => {
   const s = await prisma.businessSettings.findUnique({ where: { id: 1 } });
@@ -16,3 +17,9 @@ export const getDefaultProfessional = cache(async () => {
 });
 
 export type Settings = Awaited<ReturnType<typeof getSettings>>;
+
+/**
+ * Mesmas configurações, guardadas entre visitas. Usar nas páginas públicas;
+ * o painel continua com `getSettings()` para sempre ler o valor atual.
+ */
+export const getCachedSettings = cacheSite(() => getSettings(), ["configuracoes-do-negocio"]);

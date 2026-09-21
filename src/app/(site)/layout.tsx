@@ -1,14 +1,14 @@
 import { Header } from "@/components/site/Header";
 import { Footer } from "@/components/site/Footer";
 import { WhatsAppFloat } from "@/components/site/WhatsAppFloat";
-import { getSettings } from "@/lib/settings";
+import { getCachedSettings } from "@/lib/settings";
 import { waLink } from "@/lib/whatsapp";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const s = await getSettings();
+  const s = await getCachedSettings();
   return {
     title: { default: s.slogan ? `${s.name} — ${s.slogan}` : s.name, template: `%s · ${s.name}` },
     description: s.about ?? undefined,
@@ -17,7 +17,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
-  const s = await getSettings();
+  const s = await getCachedSettings();
   return (
     <>
       <a href="#conteudo" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-white focus:px-4 focus:py-2">

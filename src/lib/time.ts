@@ -15,12 +15,16 @@ export function localToUtc(date: string, time: string): Date {
   return fromZonedTime(`${date}T${time}:00`, TZ);
 }
 
-export function fmt(date: Date, pattern: string): string {
-  return formatInTimeZone(date, TZ, pattern, { locale: ptBR });
+/**
+ * Aceita `string`/`number` além de `Date`: valores que passam pelo cache do
+ * site voltam serializados, e converter aqui evita um erro só em produção.
+ */
+export function fmt(date: Date | string | number, pattern: string): string {
+  return formatInTimeZone(typeof date === "object" ? date : new Date(date), TZ, pattern, { locale: ptBR });
 }
 
-export const localDateOf = (d: Date) => fmt(d, "yyyy-MM-dd");
-export const localTimeOf = (d: Date) => fmt(d, "HH:mm");
+export const localDateOf = (d: Date | string | number) => fmt(d, "yyyy-MM-dd");
+export const localTimeOf = (d: Date | string | number) => fmt(d, "HH:mm");
 export const todayLocal = () => localDateOf(new Date());
 
 export function addDaysLocal(date: string, days: number): string {
@@ -48,5 +52,5 @@ export function timeLabel(time: string): string {
 }
 
 /** Ex.: "terça-feira, 22 de setembro" */
-export const longDate = (d: Date) => fmt(d, "EEEE, d 'de' MMMM");
-export const shortDateTime = (d: Date) => fmt(d, "dd/MM 'às' HH:mm");
+export const longDate = (d: Date | string | number) => fmt(d, "EEEE, d 'de' MMMM");
+export const shortDateTime = (d: Date | string | number) => fmt(d, "dd/MM 'às' HH:mm");

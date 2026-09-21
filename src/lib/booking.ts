@@ -13,8 +13,28 @@ export class BookingError extends Error {}
  * Duas reservas simultâneas para a mesma agenda são processadas uma de cada vez,
  * e a disponibilidade é verificada novamente dentro da trava.
  */
-async function lockAgenda(tx: Db, professionalId: string) {
+export async function lockAgenda(tx: Db, professionalId: string) {
   await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext(${"agenda:" + professionalId}))) AS trava`;
+}
+
+/**
+ * Garante que o intervalo da reserva continua livre antes de ela voltar a
+ * ocupar a agenda. Usar sempre dentro da trava (`lockAgenda`): uma reserva
+ * cancelada pode ter tido o horário tomado por outra cliente, e reabri-la sem
+ * esta checagem criaria duas reservas no mesmo intervalo.
+ */
+export async function assertSlotFree(
+  tx: Db,
+  booking: Pick<Booking, "id" | "professionalId" | "startsAt" | "endsAt" | "isEncaixe">
+) {
+  if (booking.isEncaixe) return;
+  const conflict = await hasConflict(tx, booking.professionalId, booking.startsAt, booking.endsAt, booking.id);
+  if (!conflict) return;
+  throw new BookingError(
+    conflict === "reserva"
+      ? "Outra reserva já ocupa esse horário. Reagende esta reserva ou marque-a como encaixe."
+      : "Esse horário está bloqueado na agenda. Remova o bloqueio ou marque a reserva como encaixe."
+  );
 }
 
 async function uniqueCode(tx: Db, prefix: string, startsAt: Date) {
@@ -47,18 +67,31 @@ export type NewBookingInput = {
 };
 
 export async function createBooking(input: NewBookingInput): Promise<Booking> {
-  const settings = await getSettings();
-  const pro = await getDefaultProfessional();
-  const service = await prisma.service.findUnique({ where: { id: input.serviceId } });
+  const [settings, pro, service] = await Promise.all([
+    getSettings(),
+    getDefaultProfessional(),
+    prisma.service.findUnique({ where: { id: input.serviceId } }),
+  ]);
   if (!service || (!service.active && input.source === "SITE")) {
     throw new BookingError("Serviço não encontrado.");
   }
 
   const startsAt = localToUtc(input.date, input.time);
   const endsAt = new Date(startsAt.getTime() + service.durationMinutes * 60_000);
-  const deposit =
-    input.source === "SITE" && settings.depositEnabled ? service.depositCents ?? settings.depositCents : 0;
+
+  // O sinal vale tanto para o site (quando ligado nas configurações) quanto
+  // para a reserva manual em que a proprietária escolheu aguardar o sinal.
+  const wantsDeposit =
+    input.initialStatus === "AGUARDANDO_PAGAMENTO" || (input.source === "SITE" && settings.depositEnabled);
+  const deposit = wantsDeposit ? service.depositCents ?? settings.depositCents : 0;
   const status: BookingStatus = input.initialStatus ?? (deposit > 0 ? "AGUARDANDO_PAGAMENTO" : "CONFIRMADO");
+
+  // Só a reserva feita pelo site expira sozinha. A reserva manual fica sob
+  // controle da proprietária e nunca é cancelada automaticamente.
+  const holdExpiresAt =
+    status === "AGUARDANDO_PAGAMENTO" && input.source === "SITE"
+      ? new Date(Date.now() + settings.holdMinutes * 60_000)
+      : null;
 
   return prisma.$transaction(
     async (tx) => {
@@ -113,8 +146,7 @@ export async function createBooking(input: NewBookingInput): Promise<Booking> {
           isPregnant: input.isPregnant,
           clientNotes: input.clientNotes || null,
           healthConsent: input.healthConsent,
-          holdExpiresAt:
-            status === "AGUARDANDO_PAGAMENTO" ? new Date(Date.now() + settings.holdMinutes * 60_000) : null,
+          holdExpiresAt,
         },
       });
 
