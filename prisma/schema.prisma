@@ -1,0 +1,329 @@
+// Banco de dados — Aurora Studio
+// Estruturado para uma profissional hoje e várias no futuro (Professional).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Acesso administrativo ─────────────────────────────────────────
+
+model AdminUser {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  auditLogs    AuditLog[]
+  professional Professional?
+}
+
+// ─── Profissionais (preparado para crescer) ────────────────────────
+
+model Professional {
+  id           String        @id @default(cuid())
+  name         String
+  bio          String?
+  photoUrl     String?
+  active       Boolean       @default(true)
+  isDefault    Boolean       @default(false)
+  adminUserId  String?       @unique
+  adminUser    AdminUser?    @relation(fields: [adminUserId], references: [id])
+  workingSlots WorkingSlot[]
+  bookings     Booking[]
+  timeBlocks   TimeBlock[]
+  createdAt    DateTime      @default(now())
+}
+
+// Horários de início oferecidos em cada dia da semana (0 = domingo … 6 = sábado)
+model WorkingSlot {
+  id             String       @id @default(cuid())
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  weekday        Int
+  time           String // "HH:mm" no fuso do salão
+  active         Boolean      @default(true)
+
+  @@unique([professionalId, weekday, time])
+}
+
+// Folgas, férias, feriados e horários bloqueados pela proprietária
+model TimeBlock {
+  id             String       @id @default(cuid())
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  startsAt       DateTime
+  endsAt         DateTime
+  reason         String?
+  createdAt      DateTime     @default(now())
+
+  @@index([professionalId, startsAt])
+}
+
+// ─── Configurações gerais (linha única, id = 1) ────────────────────
+
+model BusinessSettings {
+  id                   Int      @id @default(1)
+  name                 String
+  slogan               String?
+  about                String?
+  ownerName            String?
+  ownerBio             String?
+  ownerPhotoUrl        String?
+  heroImageUrl         String?
+  whatsapp             String?
+  instagram            String?
+  address              String?
+  region               String?
+  mapsUrl              String?
+  paymentMethods       String?
+  cancellationPolicy   String?
+  bookingInstructions  String?
+  privacyContactEmail  String?
+
+  // Regras de agendamento
+  minAdvanceHours      Int      @default(24)
+  cancelMinHours       Int      @default(5)
+  bookingWindowDays    Int      @default(60)
+  depositEnabled       Boolean  @default(true)
+  depositCents         Int      @default(1500)
+  holdMinutes          Int      @default(60)
+  bookingCodePrefix    String   @default("AU")
+
+  // Pix para o sinal (pagamento manual na Fase 1)
+  pixKey               String?
+  pixKeyType           String?
+  pixHolderName        String?
+
+  updatedAt            DateTime @updatedAt
+}
+
+model Faq {
+  id       String @id @default(cuid())
+  question String
+  answer   String
+  order    Int    @default(0)
+}
+
+// ─── Serviços e portfólio ──────────────────────────────────────────
+
+model Category {
+  id        String          @id @default(cuid())
+  name      String
+  slug      String          @unique
+  order     Int             @default(0)
+  services  Service[]
+  portfolio PortfolioItem[]
+}
+
+model Service {
+  id              String          @id @default(cuid())
+  slug            String          @unique
+  name            String
+  description     String?
+  notes           String?
+  imageUrl        String?
+  priceCents      Int             @default(0) // 0 = "sob consulta"
+  promoPriceCents Int?
+  durationMinutes Int             @default(60)
+  depositCents    Int? // vazio = usa o sinal padrão das configurações
+  returnDaysMin   Int?
+  returnDaysMax   Int?
+  active          Boolean         @default(true)
+  order           Int             @default(0)
+  categoryId      String?
+  category        Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  portfolio       PortfolioItem[]
+  bookings        Booking[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+model PortfolioItem {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  imageUrl    String
+  takenAt     DateTime?
+  featured    Boolean   @default(false)
+  order       Int       @default(0)
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  services    Service[]
+  createdAt   DateTime  @default(now())
+}
+
+// ─── Clientes ──────────────────────────────────────────────────────
+
+model Client {
+  id        String       @id @default(cuid())
+  name      String
+  phone     String       @unique // somente dígitos, com DDI 55
+  email     String?
+  birthDate DateTime?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  bookings  Booking[]
+  notes     ClientNote[]
+}
+
+// Observações internas — nunca exibidas à cliente
+model ClientNote {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  text      String
+  createdAt DateTime @default(now())
+}
+
+// ─── Reservas ──────────────────────────────────────────────────────
+
+enum BookingStatus {
+  AGUARDANDO_PAGAMENTO
+  CONFIRMADO
+  CONCLUIDO
+  CANCELADO
+  NAO_COMPARECEU
+}
+
+enum BookingSource {
+  SITE
+  MANUAL
+}
+
+model Booking {
+  id             String         @id @default(cuid())
+  code           String         @unique
+  token          String         @unique
+  professionalId String
+  professional   Professional   @relation(fields: [professionalId], references: [id])
+  clientId       String
+  client         Client         @relation(fields: [clientId], references: [id])
+  serviceId      String
+  service        Service        @relation(fields: [serviceId], references: [id])
+  startsAt       DateTime
+  endsAt         DateTime
+  status         BookingStatus
+  source         BookingSource  @default(SITE)
+  isEncaixe      Boolean        @default(false)
+
+  // Valores congelados no momento da reserva
+  priceCents     Int
+  depositCents   Int            @default(0)
+  paidCents      Int            @default(0)
+
+  // Ficha de segurança do atendimento
+  isAllergic     Boolean        @default(false)
+  allergyDetails String?
+  isPregnant     Boolean        @default(false)
+  clientNotes    String?
+  healthConsent  Boolean        @default(false)
+
+  holdExpiresAt  DateTime?
+  proofSentAt    DateTime?
+  cancelledAt    DateTime?
+  cancelReason   String?
+  lateCancel     Boolean        @default(false)
+  rescheduleCount Int           @default(0)
+
+  events         BookingEvent[]
+  payments       Payment[]
+  review         Review?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([professionalId, startsAt])
+  @@index([clientId])
+  @@index([status])
+}
+
+model BookingEvent {
+  id        String   @id @default(cuid())
+  bookingId String
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  type      String
+  message   String
+  actor     String // "cliente", "sistema" ou nome da administradora
+  createdAt DateTime @default(now())
+
+  @@index([bookingId])
+}
+
+// ─── Pagamentos (manual na Fase 1; gateway na Fase 2) ──────────────
+
+enum PaymentMethod {
+  PIX
+  CARTAO
+  DINHEIRO
+  OUTRO
+}
+
+enum PaymentStatus {
+  PENDENTE
+  PAGO
+  RECUSADO
+  CANCELADO
+  REEMBOLSADO
+}
+
+enum PaymentKind {
+  SINAL
+  RESTANTE
+  INTEGRAL
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  bookingId   String
+  booking     Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  amountCents Int
+  method      PaymentMethod
+  status      PaymentStatus @default(PAGO)
+  kind        PaymentKind
+  reference   String? // identificador da transação no gateway (Fase 2)
+  createdAt   DateTime      @default(now())
+
+  @@index([bookingId])
+}
+
+// ─── Avaliações ────────────────────────────────────────────────────
+
+enum ReviewStatus {
+  PENDENTE
+  APROVADO
+  REJEITADO
+}
+
+model Review {
+  id          String       @id @default(cuid())
+  bookingId   String?      @unique
+  booking     Booking?     @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  clientName  String
+  serviceName String?
+  rating      Int
+  comment     String
+  status      ReviewStatus @default(PENDENTE)
+  featured    Boolean      @default(false)
+  verified    Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+}
+
+// ─── Auditoria ─────────────────────────────────────────────────────
+
+model AuditLog {
+  id          String     @id @default(cuid())
+  adminUserId String?
+  adminUser   AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+  action      String
+  entity      String
+  entityId    String?
+  details     String?
+  createdAt   DateTime   @default(now())
+
+  @@index([createdAt])
+}
