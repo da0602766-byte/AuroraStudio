@@ -120,7 +120,7 @@ como aplicada uma única vez, senão o Prisma tenta recriar tudo:
 npx prisma migrate resolve --applied 0_init
 ```
 
-## Publicação (sugestão: Vercel + Neon + Vercel Blob)
+## Publicação (Netlify + Neon + Cloudinary — tudo em plano gratuito)
 
 O `build` aplica as migrations e o primeiro carregamento sozinho, então não é
 preciso rodar nada à mão contra o banco de produção:
@@ -129,18 +129,40 @@ preciso rodar nada à mão contra o banco de produção:
 prisma generate && prisma migrate deploy && prisma db seed && next build
 ```
 
-1. Crie o banco no [Neon](https://neon.tech).
-2. Envie o projeto para um repositório no GitHub e importe na [Vercel](https://vercel.com).
-3. Conecte o Neon ao projeto pela **integração Neon ↔ Vercel**. Ela cadastra
-   `DATABASE_URL` (agrupada) e `DATABASE_URL_UNPOOLED` (direta) sozinha — são
-   exatamente os nomes que o `schema.prisma` espera.
-4. Na Vercel, em **Storage**, crie um **Blob Store** e conecte ao projeto (isso cria `BLOB_READ_WRITE_TOKEN`).
-5. Em **Settings → Environment Variables**, cadastre o que falta:
-   - `AUTH_SECRET` — gere com `openssl rand -base64 48`
-   - `NEXT_PUBLIC_SITE_URL` — o endereço do site, sem barra no final
-   - `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` — o primeiro acesso ao painel
-6. Faça o deploy e conecte o domínio.
-7. Entre em `/admin`, troque a senha e preencha o conteúdo real.
+1. Crie o banco no [Neon](https://neon.tech) e copie as duas URLs de conexão
+   (Connect → Postgres database): a agrupada tem `-pooler` no endereço, a
+   direta não.
+2. Envie o projeto para um repositório no GitHub e importe na
+   [Netlify](https://netlify.com). O `netlify.toml` já traz o comando de build
+   e o plugin do Next.js.
+3. Crie uma conta no [Cloudinary](https://cloudinary.com) e pegue os três
+   valores em **Settings → API Keys**.
+4. Em **Site configuration → Environment variables**, cadastre:
+
+   | Variável | Onde obter |
+   |---|---|
+   | `DATABASE_URL` | Neon, conexão **com** `-pooler` |
+   | `DATABASE_URL_UNPOOLED` | Neon, conexão **sem** `-pooler` |
+   | `AUTH_SECRET` | Gere com `openssl rand -base64 48` |
+   | `NEXT_PUBLIC_SITE_URL` | O endereço do site, sem barra no final |
+   | `ADMIN_EMAIL` | Seu e-mail de acesso ao painel |
+   | `ADMIN_PASSWORD` | Senha do primeiro acesso, mínimo 10 caracteres |
+   | `ADMIN_NAME` | Seu nome |
+   | `CLOUDINARY_CLOUD_NAME` | Cloudinary |
+   | `CLOUDINARY_API_KEY` | Cloudinary |
+   | `CLOUDINARY_API_SECRET` | Cloudinary |
+
+5. Faça o deploy e conecte o domínio.
+6. Entre em `/admin`, troque a senha e preencha o conteúdo real.
+
+### Sobre os planos gratuitos
+
+Os três serviços permitem uso comercial no plano gratuito, ao contrário da
+Vercel, cujo plano Hobby é restrito a uso pessoal — um site que anuncia
+serviços e movimenta sinal não se enquadra ali.
+
+Para rodar na Vercel seria preciso o plano Pro, trocar o Cloudinary pelo Vercel
+Blob em `src/lib/storage.ts` e remover o `binaryTargets` do `schema.prisma`.
 
 Se alguma variável faltar, o deploy falha com erro em vez de publicar um site
 quebrado. É proposital.

@@ -3,6 +3,10 @@
 
 generator client {
   provider = "prisma-client-js"
+  // "native" serve para desenvolvimento; o segundo é o runtime das funções da
+  // Netlify (AWS Lambda). Sem ele o site sobe e quebra ao consultar o banco,
+  // com erro de "query engine" difícil de diagnosticar.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {

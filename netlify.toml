@@ -1,0 +1,16 @@
+# Publicação na Netlify.
+#
+# O build aplica as migrations e o primeiro carregamento antes de compilar,
+# então não é preciso rodar nada à mão contra o banco. As variáveis de
+# ambiente ficam em Site configuration → Environment variables.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  # O Prisma precisa gerar o cliente para o runtime das funções.
+  PRISMA_CLI_BINARY_TARGETS = "native,rhel-openssl-3.0.x"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
