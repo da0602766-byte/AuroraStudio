@@ -116,6 +116,43 @@ páginas dinâmicas. Ao criar uma consulta nova para o site público, use
 `cacheSite(...)` e garanta que a ação que altera esses dados passe por
 `revalidateSite()` / `done()`.
 
+## Sinal via Pix automático
+
+Sem configuração, o sinal é manual: o site mostra a chave Pix, a cliente
+avisa pelo WhatsApp e a proprietária confirma no painel.
+
+Com `MERCADOPAGO_ACCESS_TOKEN` cadastrado, o Pix passa a ser automático — QR
+Code gerado na hora e reserva confirmada sozinha em segundos. Os dois fluxos
+convivem: se a variável sair, o site volta ao manual sem quebrar nada.
+
+Para ligar:
+
+1. Crie a conta no [Mercado Pago](https://www.mercadopago.com.br) e pegue o
+   **access token** em Configurações → Credenciais.
+2. Em **Webhooks**, cadastre o endereço abaixo para o evento **Pagamentos**,
+   e copie a chave secreta que aparece:
+   ```
+   https://SEU-ENDERECO/api/pagamentos/mercadopago
+   ```
+3. Cadastre `MERCADOPAGO_ACCESS_TOKEN` e `MERCADOPAGO_WEBHOOK_SECRET` na
+   hospedagem e publique.
+
+### Como a confirmação é protegida
+
+O corpo do webhook vem da internet aberta e **nunca** é usado para decidir
+nada. Ele só informa qual pagamento mudou; o código então:
+
+1. confere a assinatura `x-signature` (HMAC-SHA256 sobre
+   `id:<id>;request-id:<req>;ts:<ts>;`);
+2. **reconsulta o pagamento na API do Mercado Pago** com o nosso token, e é
+   essa resposta que vale;
+3. exige que o valor bata com o sinal daquela reserva;
+4. usa o `reference` único do pagamento, então o mesmo aviso chegando duas
+   vezes não vira dois pagamentos;
+5. se a reserva tinha sido cancelada por falta de pagamento, refaz a
+   checagem de conflito antes de devolvê-la à agenda — e, se o horário já
+   tiver dono, registra um aviso no histórico em vez de criar reserva dupla.
+
 ## Endereço do site
 
 `src/lib/site-url.ts` resolve o endereço público. Ele usa

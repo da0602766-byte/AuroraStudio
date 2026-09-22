@@ -9,6 +9,8 @@ import { fmt, longDate, timeLabel, localTimeOf } from "@/lib/time";
 import { waLink } from "@/lib/whatsapp";
 import { BrowArc } from "@/components/site/BrowArc";
 import { CancelButton, CopyButton, ProofButton, ReviewForm } from "@/components/booking/ReservationActions";
+import { PixPayment } from "@/components/booking/PixPayment";
+import { mercadoPagoConfigurado } from "@/lib/payments/mercadopago";
 
 export const metadata: Metadata = { title: "Sua reserva", robots: { index: false, follow: false } };
 
@@ -54,6 +56,7 @@ export default async function ReservationPage({
   }[status];
 
   const canCancel = !expired && canClientCancel(b, s.cancelMinHours, now);
+  const pagamentoAutomatico = mercadoPagoConfigurado();
   const active = status === "AGUARDANDO_PAGAMENTO" || status === "CONFIRMADO";
 
   return (
@@ -78,18 +81,29 @@ export default async function ReservationPage({
               Depois disso, ele volta a ficar disponível.
             </p>
           )}
-          {s.pixKey ? (
-            <div className="mt-4 rounded-2xl bg-white p-4">
-              <p className="text-sm text-marrom-medio">Chave Pix{s.pixKeyType ? ` (${s.pixKeyType})` : ""}</p>
-              <p className="mt-1 break-all font-medium">{s.pixKey}</p>
-              {s.pixHolderName && <p className="mt-1 text-sm text-marrom-medio">Em nome de {s.pixHolderName}</p>}
-              <div className="mt-3"><CopyButton text={s.pixKey} label="Copiar chave Pix" /></div>
-            </div>
+          {/*
+            * Com o Mercado Pago configurado, o Pix é gerado na hora e a
+            * reserva confirma sozinha. Sem ele, continua valendo o fluxo
+            * manual: chave Pix mais comprovante pelo WhatsApp.
+            */}
+          {pagamentoAutomatico ? (
+            <PixPayment token={b.token} expiraEmTexto={b.holdExpiresAt ? fmt(b.holdExpiresAt, "HH:mm") : null} />
           ) : (
-            <p className="mt-4 text-[15px]">A chave Pix será enviada pelo WhatsApp.</p>
+            <>
+              {s.pixKey ? (
+                <div className="mt-4 rounded-2xl bg-white p-4">
+                  <p className="text-sm text-marrom-medio">Chave Pix{s.pixKeyType ? ` (${s.pixKeyType})` : ""}</p>
+                  <p className="mt-1 break-all font-medium">{s.pixKey}</p>
+                  {s.pixHolderName && <p className="mt-1 text-sm text-marrom-medio">Em nome de {s.pixHolderName}</p>}
+                  <div className="mt-3"><CopyButton text={s.pixKey} label="Copiar chave Pix" /></div>
+                </div>
+              ) : (
+                <p className="mt-4 text-[15px]">A chave Pix será enviada pelo WhatsApp.</p>
+              )}
+              <p className="mt-4 text-[15px] text-marrom-medio">Depois de pagar, envie o comprovante:</p>
+              {waComprovante && <div className="mt-3"><ProofButton token={b.token} href={waComprovante} /></div>}
+            </>
           )}
-          <p className="mt-4 text-[15px] text-marrom-medio">Depois de pagar, envie o comprovante:</p>
-          {waComprovante && <div className="mt-3"><ProofButton token={b.token} href={waComprovante} /></div>}
         </section>
       )}
       {status === "AGUARDANDO_PAGAMENTO" && b.proofSentAt && (

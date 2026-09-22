@@ -293,10 +293,19 @@ model Payment {
   method      PaymentMethod
   status      PaymentStatus @default(PAGO)
   kind        PaymentKind
-  reference   String? // identificador da transação no gateway (Fase 2)
+  /// Identificador da transação no gateway. Único, para que a mesma
+  /// notificação chegando duas vezes não vire dois pagamentos.
+  reference   String?       @unique
+  /// Código "copia e cola" do Pix e a imagem do QR, guardados para a
+  /// cliente reabrir o link da reserva e continuar de onde parou.
+  pixCode     String?
+  pixQrBase64 String?
+  expiresAt   DateTime?
   createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt @default(now())
 
   @@index([bookingId])
+  @@index([status])
 }
 
 // ─── Avaliações ────────────────────────────────────────────────────
