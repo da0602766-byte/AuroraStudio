@@ -1,6 +1,9 @@
 /**
- * Popula o banco com os dados iniciais do estúdio.
- * Pode ser executado mais de uma vez sem duplicar informações.
+ * Primeiro carregamento do estúdio: cria configurações, acesso da
+ * proprietária, profissional padrão, horários, serviços e dúvidas.
+ *
+ * Roda junto com o build, então é seguro executar quantas vezes for: depois
+ * que o estúdio está configurado, não faz nada.
  *   npm run db:seed
  */
 import { PrismaClient } from "@prisma/client";
@@ -48,6 +51,14 @@ const FAQS = [
 ];
 
 async function main() {
+  // Este seed é o primeiro carregamento, e roda a cada publicação. Se o
+  // estúdio já foi configurado, ele não mexe em nada: sem esta guarda, um
+  // serviço ou uma categoria removida pelo painel voltaria a cada deploy.
+  if (await prisma.professional.findFirst({ where: { isDefault: true } })) {
+    console.log("Banco já configurado. Nada a fazer.");
+    return;
+  }
+
   // Configurações gerais
   await prisma.businessSettings.upsert({
     where: { id: 1 },
@@ -75,7 +86,11 @@ async function main() {
   // Administradora
   const email = process.env.ADMIN_EMAIL;
   const password = process.env.ADMIN_PASSWORD;
-  if (!email || !password) throw new Error("Defina ADMIN_EMAIL e ADMIN_PASSWORD no arquivo .env");
+  if (!email || !password) {
+    throw new Error(
+      "Defina ADMIN_EMAIL e ADMIN_PASSWORD (no arquivo .env, ou nas variáveis de ambiente da hospedagem)."
+    );
+  }
   if (password.length < 10) throw new Error("ADMIN_PASSWORD precisa ter pelo menos 10 caracteres");
 
   const admin = await prisma.adminUser.upsert({

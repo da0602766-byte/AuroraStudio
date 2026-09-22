@@ -64,7 +64,7 @@ Requisitos: Node.js 18.18 ou mais novo e um banco PostgreSQL (local ou gratuito 
 
 ```bash
 npm install
-cp .env.example .env        # preencha os valores
+cp .env.example .env        # preencha os valores (as duas URLs do banco)
 npm run db:migrate          # cria as tabelas a partir das migrations
 npm run db:seed             # serviços, horários, regras e acesso da proprietária
 npm run dev                 # http://localhost:3000  e  http://localhost:3000/admin
@@ -122,12 +122,36 @@ npx prisma migrate resolve --applied 0_init
 
 ## Publicação (sugestão: Vercel + Neon + Vercel Blob)
 
-1. Crie o banco no [Neon](https://neon.tech) e copie a URL de conexão *pooled*.
+O `build` aplica as migrations e o primeiro carregamento sozinho, então não é
+preciso rodar nada à mão contra o banco de produção:
+
+```
+prisma generate && prisma migrate deploy && prisma db seed && next build
+```
+
+1. Crie o banco no [Neon](https://neon.tech).
 2. Envie o projeto para um repositório no GitHub e importe na [Vercel](https://vercel.com).
-3. Na Vercel, em **Storage**, crie um **Blob Store** e conecte ao projeto (isso cria `BLOB_READ_WRITE_TOKEN`).
-4. Em **Settings → Environment Variables**, cadastre `DATABASE_URL`, `AUTH_SECRET` (gere com `openssl rand -base64 48`) e `NEXT_PUBLIC_SITE_URL`.
-5. No computador, com a `DATABASE_URL` de produção no `.env`, rode `npm run db:migrate` e `npm run db:seed`.
+3. Conecte o Neon ao projeto pela **integração Neon ↔ Vercel**. Ela cadastra
+   `DATABASE_URL` (agrupada) e `DATABASE_URL_UNPOOLED` (direta) sozinha — são
+   exatamente os nomes que o `schema.prisma` espera.
+4. Na Vercel, em **Storage**, crie um **Blob Store** e conecte ao projeto (isso cria `BLOB_READ_WRITE_TOKEN`).
+5. Em **Settings → Environment Variables**, cadastre o que falta:
+   - `AUTH_SECRET` — gere com `openssl rand -base64 48`
+   - `NEXT_PUBLIC_SITE_URL` — o endereço do site, sem barra no final
+   - `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` — o primeiro acesso ao painel
 6. Faça o deploy e conecte o domínio.
+7. Entre em `/admin`, troque a senha e preencha o conteúdo real.
+
+Se alguma variável faltar, o deploy falha com erro em vez de publicar um site
+quebrado. É proposital.
+
+> O seed roda a cada publicação, mas só faz algo na primeira: depois que o
+> estúdio está configurado, ele não toca em nada. Um serviço removido pelo
+> painel não volta.
+
+> As migrations são aplicadas durante o build, inclusive em deploys de
+> *preview*, que usam o mesmo banco. Para um projeto de uma profissional só
+> isso é prático; se um dia houver equipe, vale um banco separado para preview.
 
 > Atenção: o plano gratuito (Hobby) da Vercel é apenas para uso não comercial. Para o site de um negócio, use o plano Pro ou outra hospedagem compatível com Next.js (Railway, Render, Netlify).
 
