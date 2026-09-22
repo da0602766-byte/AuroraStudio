@@ -14,9 +14,10 @@ import { siteUrl } from "@/lib/site-url";
 const METHOD: Record<string, string> = { PIX: "Pix", CARTAO: "Cartão", DINHEIRO: "Dinheiro", OUTRO: "Outro" };
 const KIND: Record<string, string> = { SINAL: "Sinal", RESTANTE: "Restante", INTEGRAL: "Integral" };
 
-export default async function BookingDetail({ params }: { params: { id: string } }) {
+export default async function BookingDetail({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const b = await prisma.booking.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       client: true,
       service: true,
