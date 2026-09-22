@@ -2,18 +2,21 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { reviewSchema } from "@/lib/validators";
 import { firstName } from "@/lib/format";
-import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { clientIp, sharedRateLimit } from "@/lib/rate-limit";
+import { revalidateTag } from "next/cache";
+import { ADMIN_NAV_TAG } from "@/lib/cache";
 
 /** Avaliação verificada: só a partir de uma reserva concluída, uma por reserva. */
-export async function POST(req: Request, { params }: { params: { token: string } }) {
-  if (!rateLimit(`aval:${clientIp()}`, 5, 10 * 60_000)) {
+export async function POST(req: Request, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
+  if (!(await sharedRateLimit(`aval:${await clientIp()}`, 5, 10 * 60_000))) {
     return NextResponse.json({ error: "Muitas tentativas." }, { status: 429 });
   }
   const parsed = reviewSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Dados inválidos." }, { status: 400 });
 
   const b = await prisma.booking.findUnique({
-    where: { token: params.token },
+    where: { token },
     include: { client: true, service: true, review: true },
   });
   if (!b || b.status !== "CONCLUIDO") return NextResponse.json({ error: "Avaliação indisponível para esta reserva." }, { status: 409 });
@@ -29,5 +32,6 @@ export async function POST(req: Request, { params }: { params: { token: string }
       verified: true,
     },
   });
+  revalidateTag(ADMIN_NAV_TAG, { expire: 0 });
   return NextResponse.json({ ok: true }, { status: 201 });
 }
