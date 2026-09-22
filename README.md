@@ -2,7 +2,7 @@
 
 Site do estúdio com agendamento sem cadastro, sinal via Pix e painel de gestão para a proprietária.
 
-**Tecnologia:** Next.js 14 (App Router) · TypeScript · Tailwind CSS · Prisma · PostgreSQL.
+**Tecnologia:** Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS · Prisma · PostgreSQL.
 
 ## O que já funciona (Fase 1 completa + partes das Fases 2 e 3)
 
@@ -60,7 +60,7 @@ Como o sinal funciona na Fase 1 (sem gateway):
 
 ## Instalação local
 
-Requisitos: Node.js 18.18 ou mais novo e um banco PostgreSQL (local ou gratuito no Neon/Supabase).
+Requisitos: Node.js 20.9 ou mais novo e um banco PostgreSQL (local ou gratuito no Neon/Supabase).
 
 ```bash
 npm install
@@ -102,9 +102,9 @@ montadas no servidor a cada clique. Quem decide isso é o `revalidate` do
 | Página | Como é servida | Por quê |
 |---|---|---|
 | Inicial, privacidade, consulta | Pronta, do CDN | Conteúdo igual para todo mundo |
-| Cada serviço | Gerada no build | Uma por serviço, via `generateStaticParams` |
-| Agendar | A cada pedido | Depende do dia de hoje e da agenda |
-| Galeria | A cada pedido | Filtra por categoria e página pela URL |
+| Cada serviço | Cache de 5 minutos | Abre qualquer novo serviço sem depender do próximo build |
+| Agendar | Cache de 5 minutos | Catálogo em cache; disponibilidade permanece em tempo real |
+| Galeria | Cache de 5 minutos | Cache separado por categoria e página |
 | Reserva pelo link | A cada pedido | Dados de uma cliente específica |
 
 Toda ação do painel chama `revalidatePath("/", "layout")` e `revalidateTag`,
@@ -142,11 +142,11 @@ npx prisma migrate resolve --applied 0_init
 
 ## Publicação (Netlify + Neon + Cloudinary — tudo em plano gratuito)
 
-O `build` aplica as migrations e o primeiro carregamento sozinho, então não é
-preciso rodar nada à mão contra o banco de produção:
+Somente o build de produção aplica migrations e o primeiro carregamento. Os
+Deploy Previews compilam o projeto sem alterar o banco:
 
 ```
-prisma generate && prisma migrate deploy && prisma db seed && next build
+npm run build:production
 ```
 
 1. Crie o banco no [Neon](https://neon.tech) e copie as duas URLs de conexão
@@ -191,9 +191,9 @@ quebrado. É proposital.
 > estúdio está configurado, ele não toca em nada. Um serviço removido pelo
 > painel não volta.
 
-> As migrations são aplicadas durante o build, inclusive em deploys de
-> *preview*, que usam o mesmo banco. Para um projeto de uma profissional só
-> isso é prático; se um dia houver equipe, vale um banco separado para preview.
+> Deploys de preview não aplicam migrations nem executam o seed. Quando houver
+> um banco separado para previews, configure as variáveis no contexto
+> `deploy-preview` da Netlify.
 
 > Atenção: o plano gratuito (Hobby) da Vercel é apenas para uso não comercial. Para o site de um negócio, use o plano Pro ou outra hospedagem compatível com Next.js (Railway, Render, Netlify).
 
