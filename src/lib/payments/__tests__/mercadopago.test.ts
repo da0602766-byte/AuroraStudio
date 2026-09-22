@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { assinaturaConfere, mercadoPagoConfigurado } from "../mercadopago";
 
 const SEGREDO = "segredo-de-teste-do-webhook";
@@ -12,10 +12,17 @@ function assinar(dataId: string, requestId: string, ts = "1758000000") {
   return `ts=${ts},v1=${v1}`;
 }
 
-afterEach(() => {
+/**
+ * Cada teste define o ambiente de que precisa. Sem isto, rodar a suíte com
+ * MERCADOPAGO_ACCESS_TOKEN já exportado no terminal — ou com um .env
+ * carregado — fazia o teste falhar por motivo alheio ao código.
+ */
+function limpar() {
   delete process.env.MERCADOPAGO_WEBHOOK_SECRET;
   delete process.env.MERCADOPAGO_ACCESS_TOKEN;
-});
+}
+beforeEach(limpar);
+afterEach(limpar);
 
 describe("mercadoPagoConfigurado", () => {
   it("depende do token de acesso", () => {

@@ -12,22 +12,29 @@ export const dynamic = "force-dynamic";
  * GET ?servico=ID&de=AAAA-MM-DD&ate=...   → resumo de disponibilidade por dia
  */
 export async function GET(req: NextRequest) {
-  if (!rateLimit(`disp:${clientIp()}`, 120, 60_000)) {
+  const startedAt = Date.now();
+  if (!rateLimit(`disp:${await clientIp()}`, 120, 60_000)) {
     return NextResponse.json({ error: "Muitas consultas seguidas. Aguarde um minuto." }, { status: 429 });
   }
   const sp = req.nextUrl.searchParams;
-  const service = await prisma.service.findFirst({ where: { id: sp.get("servico") ?? "", active: true } });
+  const [service, settings, pro] = await Promise.all([
+    prisma.service.findFirst({ where: { id: sp.get("servico") ?? "", active: true } }),
+    getSettings(),
+    getDefaultProfessional(),
+  ]);
   if (!service) return NextResponse.json({ error: "Serviço não encontrado." }, { status: 404 });
 
-  const [settings, pro] = await Promise.all([getSettings(), getDefaultProfessional()]);
   const base = { professionalId: pro.id, durationMinutes: service.durationMinutes, rules: settings };
-  const headers = { "Cache-Control": "no-store" };
+  const responseHeaders = () => ({
+    "Cache-Control": "no-store",
+    "Server-Timing": `availability;dur=${Date.now() - startedAt}`,
+  });
 
   const date = sp.get("data");
   if (date) {
     if (!isDateStr(date)) return NextResponse.json({ error: "Data inválida." }, { status: 400 });
     const res = await getSlotsForRange(prisma, { ...base, fromDate: date, toDate: date });
-    return NextResponse.json({ date, slots: res[date] ?? [] }, { headers });
+    return NextResponse.json({ date, slots: res[date] ?? [] }, { headers: responseHeaders() });
   }
 
   const from = sp.get("de");
@@ -36,5 +43,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Período inválido." }, { status: 400 });
   }
   const days = await getDaySummaries(prisma, { ...base, fromDate: from, toDate: to });
-  return NextResponse.json({ days }, { headers });
+  return NextResponse.json({ days }, { headers: responseHeaders() });
 }

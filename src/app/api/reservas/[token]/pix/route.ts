@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { siteUrl } from "@/lib/site-url";
-import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { clientIp, sharedRateLimit } from "@/lib/rate-limit";
 import { criarCobrancaPix, mercadoPagoConfigurado, PagamentoError } from "@/lib/payments/mercadopago";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +13,9 @@ export const dynamic = "force-dynamic";
  * Reaproveita a cobrança que já existe: recarregar a página não gera Pix
  * novo, senão a cliente ficaria com vários códigos válidos ao mesmo tempo.
  */
-export async function POST(_req: Request, { params }: { params: { token: string } }) {
-  if (!rateLimit(`pix:${clientIp()}`, 20, 10 * 60_000)) {
+export async function POST(_req: Request, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
+  if (!(await sharedRateLimit(`pix:${await clientIp()}`, 20, 10 * 60_000))) {
     return NextResponse.json({ error: "Muitas tentativas. Aguarde alguns minutos." }, { status: 429 });
   }
   if (!mercadoPagoConfigurado()) {
@@ -22,7 +23,7 @@ export async function POST(_req: Request, { params }: { params: { token: string 
   }
 
   const b = await prisma.booking.findUnique({
-    where: { token: params.token },
+    where: { token },
     include: { client: true, service: true },
   });
   if (!b) return NextResponse.json({ error: "Reserva não encontrada." }, { status: 404 });

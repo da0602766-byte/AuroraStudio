@@ -6,10 +6,11 @@ import { fmt } from "@/lib/time";
 
 const PER_PAGE = 40;
 
-export default async function ClientsPage({ searchParams }: { searchParams: { q?: string; pagina?: string } }) {
-  const q = (searchParams.q ?? "").trim();
+export default async function ClientsPage({ searchParams }: { searchParams: Promise<{ q?: string; pagina?: string }> }) {
+  const query = await searchParams;
+  const q = (query.q ?? "").trim();
   const digits = q.replace(/\D/g, "");
-  const page = Math.max(1, Number(searchParams.pagina) || 1);
+  const page = Math.max(1, Number(query.pagina) || 1);
   const where: Prisma.ClientWhereInput = {
     NOT: { phone: { startsWith: "removido" } },
     ...(q

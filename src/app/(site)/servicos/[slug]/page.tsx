@@ -2,48 +2,49 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
-import { getSettings } from "@/lib/settings";
+import { cacheSite } from "@/lib/cache";
+import { getCachedSettings } from "@/lib/settings";
 import { brl, durationLabel, effectivePrice, priceLabel } from "@/lib/format";
 import { waLink } from "@/lib/whatsapp";
 import { Photo } from "@/components/site/Photo";
 import { BrowArc } from "@/components/site/BrowArc";
 
-async function load(slug: string) {
-  return prisma.service.findFirst({
+const load = cacheSite(async (slug: string) => {
+  const service = await prisma.service.findFirst({
     where: { slug, active: true },
     include: {
       category: true,
       portfolio: { orderBy: [{ featured: "desc" }, { order: "asc" }, { createdAt: "desc" }], take: 12 },
     },
   });
-}
+  if (!service || service.portfolio.length > 0 || !service.categoryId) {
+    return { service, fallbackPhotos: [] };
+  }
+  const fallbackPhotos = await prisma.portfolioItem.findMany({
+    where: { categoryId: service.categoryId },
+    take: 8,
+    orderBy: { createdAt: "desc" },
+  });
+  return { service, fallbackPhotos };
+}, ["pagina-de-servico"]);
 
-/** Gera uma página pronta para cada serviço ativo, servida direto do CDN. */
-export async function generateStaticParams() {
-  const servicos = await prisma.service.findMany({ where: { active: true }, select: { slug: true } });
-  return servicos.map((s) => ({ slug: s.slug }));
-}
-
-export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
-  const sv = await load(params.slug);
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const { service: sv } = await load(slug);
   return sv ? { title: sv.name, description: sv.description ?? undefined } : {};
 }
 
-export default async function ServicePage({ params }: { params: { slug: string } }) {
-  const sv = await load(params.slug);
+export default async function ServicePage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const { service: sv, fallbackPhotos } = await load(slug);
   if (!sv) notFound();
-  const s = await getSettings();
+  const s = await getCachedSettings();
   const price = effectivePrice(sv);
   const deposit = s.depositEnabled ? sv.depositCents ?? s.depositCents : 0;
   const wa = waLink(s.whatsapp, `Olá! Tenho uma dúvida sobre o serviço ${sv.name}.`);
 
   // Se o serviço ainda não tem fotos próprias, mostra trabalhos da mesma categoria
-  const photos =
-    sv.portfolio.length > 0
-      ? sv.portfolio
-      : sv.categoryId
-        ? await prisma.portfolioItem.findMany({ where: { categoryId: sv.categoryId }, take: 8, orderBy: { createdAt: "desc" } })
-        : [];
+  const photos = sv.portfolio.length > 0 ? sv.portfolio : fallbackPhotos;
 
   return (
     <div className="py-10 md:py-16">

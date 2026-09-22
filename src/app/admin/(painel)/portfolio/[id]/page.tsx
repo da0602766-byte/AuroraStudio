@@ -5,9 +5,10 @@ import { SubmitButton } from "@/components/admin/Buttons";
 import { deletePortfolioItem } from "@/app/admin/actions/catalog";
 import { PortfolioForm } from "../PortfolioForm";
 
-export default async function EditPortfolioPage({ params }: { params: { id: string } }) {
+export default async function EditPortfolioPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const [item, categories, services] = await Promise.all([
-    prisma.portfolioItem.findUnique({ where: { id: params.id }, include: { services: { select: { id: true } } } }),
+    prisma.portfolioItem.findUnique({ where: { id }, include: { services: { select: { id: true } } } }),
     prisma.category.findMany({ orderBy: { order: "asc" } }),
     prisma.service.findMany({ orderBy: { order: "asc" } }),
   ]);

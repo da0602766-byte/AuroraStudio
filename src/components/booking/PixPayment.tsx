@@ -11,8 +11,6 @@ type Cobranca = {
   valorCents: number;
 };
 
-const brl = (c: number) => (c / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-
 /**
  * Pix do sinal, com confirmação automática.
  *

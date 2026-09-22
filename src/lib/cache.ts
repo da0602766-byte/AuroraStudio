@@ -13,6 +13,8 @@ import { unstable_cache } from "next/cache";
  * rede de segurança para alterações feitas fora do painel.
  */
 export const SITE_TAG = "conteudo-do-site";
+export const ADMIN_SESSION_TAG = "sessao-administrativa";
+export const ADMIN_NAV_TAG = "navegacao-administrativa";
 const REVALIDATE_SECONDS = 300;
 
 export function cacheSite<A extends unknown[], R>(

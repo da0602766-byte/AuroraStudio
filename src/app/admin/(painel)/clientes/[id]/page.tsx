@@ -9,9 +9,10 @@ import { ActionForm } from "@/components/admin/ActionForm";
 import { SubmitButton } from "@/components/admin/Buttons";
 import { addClientNote, anonymizeClient, deleteClientNote, updateClient } from "@/app/admin/actions/clients";
 
-export default async function ClientDetail({ params }: { params: { id: string } }) {
+export default async function ClientDetail({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const c = await prisma.client.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       bookings: { include: { service: true }, orderBy: { startsAt: "desc" } },
       notes: { orderBy: { createdAt: "desc" } },

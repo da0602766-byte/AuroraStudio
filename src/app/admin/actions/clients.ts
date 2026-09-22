@@ -108,6 +108,6 @@ export async function anonymizeClient(form: FormData) {
   ]);
   await audit(admin.id, "CLIENTE_ANONIMIZADA", "cliente", id);
   revalidatePath("/", "layout");
-  revalidateTag(SITE_TAG); // as avaliações do site acabaram de mudar
+  revalidateTag(SITE_TAG, { expire: 0 }); // as avaliações do site acabaram de mudar
   redirect("/admin/clientes");
 }

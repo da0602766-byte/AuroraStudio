@@ -19,7 +19,7 @@ const int = (v: FormDataEntryValue | null, min: number, max: number) => {
 
 function done(msg: string): FormResult {
   revalidatePath("/", "layout");
-  revalidateTag(SITE_TAG); // derruba o cache das consultas do site
+  revalidateTag(SITE_TAG, { expire: 0 }); // derruba o cache das consultas do site
   return { ok: msg };
 }
 
