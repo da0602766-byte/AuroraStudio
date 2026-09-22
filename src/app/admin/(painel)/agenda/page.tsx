@@ -1,17 +1,17 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { expireStaleHolds, getSlotsForRange } from "@/lib/availability";
+import { getSlotsForRange } from "@/lib/availability";
 import { getDefaultProfessional, getSettings } from "@/lib/settings";
 import { addDaysLocal, fmt, isDateStr, localDateOf, localToUtc, todayLocal, weekdayOf, WEEKDAYS_SHORT } from "@/lib/time";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 
 type View = "dia" | "semana" | "mes";
 
-export default async function AgendaPage({ searchParams }: { searchParams: { view?: string; data?: string } }) {
-  await expireStaleHolds(prisma);
-  const view: View = searchParams.view === "dia" || searchParams.view === "mes" ? searchParams.view : "semana";
-  const date = isDateStr(searchParams.data) ? searchParams.data : todayLocal();
+export default async function AgendaPage({ searchParams }: { searchParams: Promise<{ view?: string; data?: string }> }) {
+  const query = await searchParams;
+  const view: View = query.view === "dia" || query.view === "mes" ? query.view : "semana";
+  const date = isDateStr(query.data) ? query.data : todayLocal();
   const [s, pro] = await Promise.all([getSettings(), getDefaultProfessional()]);
 
   let from: string, to: string;
