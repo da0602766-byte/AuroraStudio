@@ -3,10 +3,10 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { normalizePhone } from "@/lib/format";
-import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { clientIp, sharedRateLimit } from "@/lib/rate-limit";
 
 export async function lookupBooking(_prev: { error?: string } | undefined, form: FormData) {
-  if (!rateLimit(`consulta:${clientIp()}`, 8, 10 * 60_000)) {
+  if (!(await sharedRateLimit(`consulta:${await clientIp()}`, 8, 10 * 60_000))) {
     return { error: "Muitas tentativas. Aguarde alguns minutos." };
   }
   const code = String(form.get("code") ?? "").trim().toUpperCase();
