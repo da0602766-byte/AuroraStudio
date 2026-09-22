@@ -89,6 +89,7 @@ export function BookingWizard(props: {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const slotsCache = useRef<Record<string, Slot[]>>({});
 
   const service = props.services.find((s) => s.id === serviceId) ?? null;
   const lastDate = addDays(props.today, props.windowDays);
@@ -105,10 +106,11 @@ export function BookingWizard(props: {
     const first = ymd(y, m, 1) < props.today ? props.today : ymd(y, m, 1);
     const last = ymd(y, m, daysIn(y, m)) > lastDate ? lastDate : ymd(y, m, daysIn(y, m));
     if (first > last) {
-      setDays({});
       return;
     }
     const ctrl = new AbortController();
+    // O estado representa a requisição iniciada por este próprio efeito.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDaysLoading(true);
     fetch(`/api/disponibilidade?servico=${serviceId}&de=${first}&ate=${last}`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
@@ -126,12 +128,18 @@ export function BookingWizard(props: {
   const loadSlots = useCallback(
     async (d: string) => {
       if (!serviceId) return;
+      const cacheKey = `${serviceId}:${d}`;
+      if (slotsCache.current[cacheKey]) {
+        setSlots(slotsCache.current[cacheKey]);
+        return;
+      }
       setSlotsLoading(true);
       setSlots(null);
       try {
         const r = await fetch(`/api/disponibilidade?servico=${serviceId}&data=${d}`, { cache: "no-store" });
         if (!r.ok) throw new Error();
         const data = (await r.json()) as { slots: Slot[] };
+        slotsCache.current[cacheKey] = data.slots;
         setSlots(data.slots);
       } catch {
         setError("Não foi possível carregar os horários. Tente novamente.");
@@ -220,7 +228,10 @@ export function BookingWizard(props: {
       if (r.status === 409) {
         setTime(null);
         setStep(2);
-        if (date) loadSlots(date);
+        if (date) {
+          delete slotsCache.current[`${service.id}:${date}`];
+          loadSlots(date);
+        }
       } else if (data.field && ["name", "phone", "email", "allergyDetails", "consent"].includes(data.field)) {
         setStep(3);
         setFieldErrors({ [data.field]: data.error });
