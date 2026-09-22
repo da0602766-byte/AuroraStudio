@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { BookingStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { expireStaleHolds } from "@/lib/availability";
 import { brl, formatPhone } from "@/lib/format";
 import { addDaysLocal, fmt, isDateStr, localToUtc } from "@/lib/time";
 import { STATUS_LABEL } from "@/lib/status";
@@ -12,21 +11,21 @@ const PER_PAGE = 30;
 export default async function BookingsPage({
   searchParams,
 }: {
-  searchParams: { status?: string; de?: string; ate?: string; q?: string; pagina?: string };
+  searchParams: Promise<{ status?: string; de?: string; ate?: string; q?: string; pagina?: string }>;
 }) {
-  await expireStaleHolds(prisma);
-  const page = Math.max(1, Number(searchParams.pagina) || 1);
-  const status = (Object.keys(STATUS_LABEL) as BookingStatus[]).find((s) => s === searchParams.status);
-  const q = (searchParams.q ?? "").trim();
+  const query = await searchParams;
+  const page = Math.max(1, Number(query.pagina) || 1);
+  const status = (Object.keys(STATUS_LABEL) as BookingStatus[]).find((s) => s === query.status);
+  const q = (query.q ?? "").trim();
   const digits = q.replace(/\D/g, "");
 
   const where: Prisma.BookingWhereInput = {
     ...(status ? { status } : {}),
-    ...(isDateStr(searchParams.de) || isDateStr(searchParams.ate)
+    ...(isDateStr(query.de) || isDateStr(query.ate)
       ? {
           startsAt: {
-            ...(isDateStr(searchParams.de) ? { gte: localToUtc(searchParams.de, "00:00") } : {}),
-            ...(isDateStr(searchParams.ate) ? { lt: localToUtc(addDaysLocal(searchParams.ate, 1), "00:00") } : {}),
+            ...(isDateStr(query.de) ? { gte: localToUtc(query.de, "00:00") } : {}),
+            ...(isDateStr(query.ate) ? { lt: localToUtc(addDaysLocal(query.ate, 1), "00:00") } : {}),
           },
         }
       : {}),
@@ -54,7 +53,7 @@ export default async function BookingsPage({
   ]);
   const pages = Math.max(1, Math.ceil(total / PER_PAGE));
   const qs = (p: number) =>
-    `/admin/reservas?${new URLSearchParams({ ...Object.fromEntries(Object.entries(searchParams).filter(([, v]) => v)), pagina: String(p) } as Record<string, string>)}`;
+    `/admin/reservas?${new URLSearchParams({ ...Object.fromEntries(Object.entries(query).filter(([, v]) => v)), pagina: String(p) } as Record<string, string>)}`;
 
   return (
     <div className="space-y-6">
@@ -77,11 +76,11 @@ export default async function BookingsPage({
         </div>
         <div>
           <label htmlFor="de" className="rotulo">De</label>
-          <input id="de" name="de" type="date" defaultValue={searchParams.de} className="campo" />
+          <input id="de" name="de" type="date" defaultValue={query.de} className="campo" />
         </div>
         <div>
           <label htmlFor="ate" className="rotulo">Até</label>
-          <input id="ate" name="ate" type="date" defaultValue={searchParams.ate} className="campo" />
+          <input id="ate" name="ate" type="date" defaultValue={query.ate} className="campo" />
         </div>
         <div className="flex gap-2 sm:col-span-5">
           <button type="submit" className="btn-primario btn-pequeno">Filtrar</button>

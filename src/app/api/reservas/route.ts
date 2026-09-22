@@ -2,10 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { bookingRequestSchema } from "@/lib/validators";
 import { BookingError, createBooking } from "@/lib/booking";
 import { normalizePhone } from "@/lib/format";
-import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { clientIp, sharedRateLimit } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
-  if (!rateLimit(`reserva:${clientIp()}`, 6, 10 * 60_000)) {
+  if (!(await sharedRateLimit(`reserva:${await clientIp()}`, 6, 10 * 60_000))) {
     return NextResponse.json({ error: "Muitas tentativas. Aguarde alguns minutos ou fale pelo WhatsApp." }, { status: 429 });
   }
 

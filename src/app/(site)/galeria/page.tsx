@@ -2,21 +2,18 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { Photo } from "@/components/site/Photo";
+import { cacheSite } from "@/lib/cache";
 
 export const metadata: Metadata = { title: "Trabalhos" };
 
 const PER_PAGE = 24;
 
-// Filtra por categoria e página pela URL, então é montada a cada pedido.
-export const dynamic = "force-dynamic";
-
-export default async function GalleryPage({ searchParams }: { searchParams: { categoria?: string; pagina?: string } }) {
-  const page = Math.max(1, Number(searchParams.pagina) || 1);
+const loadGallery = cacheSite(async (categorySlug: string, page: number) => {
   const categories = await prisma.category.findMany({
     where: { portfolio: { some: {} } },
     orderBy: { order: "asc" },
   });
-  const active = categories.find((c) => c.slug === searchParams.categoria);
+  const active = categories.find((c) => c.slug === categorySlug);
   const where = active ? { categoryId: active.id } : {};
   const [items, total] = await Promise.all([
     prisma.portfolioItem.findMany({
@@ -28,6 +25,13 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ca
     }),
     prisma.portfolioItem.count({ where }),
   ]);
+  return { categories, active, items, total };
+}, ["galeria-publica"]);
+
+export default async function GalleryPage({ searchParams }: { searchParams: Promise<{ categoria?: string; pagina?: string }> }) {
+  const query = await searchParams;
+  const page = Math.max(1, Number(query.pagina) || 1);
+  const { categories, active, items, total } = await loadGallery(query.categoria ?? "", page);
   const pages = Math.ceil(total / PER_PAGE);
   const q = (p: number) => `/galeria?${new URLSearchParams({ ...(active ? { categoria: active.slug } : {}), pagina: String(p) })}`;
 

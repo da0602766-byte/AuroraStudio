@@ -2,18 +2,26 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getSettings } from "@/lib/settings";
+import { getCachedSettings } from "@/lib/settings";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { logout } from "../actions/auth";
+import { unstable_cache } from "next/cache";
+import { ADMIN_NAV_TAG } from "@/lib/cache";
 
 export const metadata: Metadata = { title: "Painel", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
 
+const getPendingReviews = unstable_cache(
+  () => prisma.review.count({ where: { status: "PENDENTE" } }),
+  ["avaliacoes-pendentes-do-menu"],
+  { tags: [ADMIN_NAV_TAG], revalidate: 30 }
+);
+
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
   const admin = await requireAdmin();
   const [s, pendingReviews] = await Promise.all([
-    getSettings(),
-    prisma.review.count({ where: { status: "PENDENTE" } }),
+    getCachedSettings(),
+    getPendingReviews(),
   ]);
   return (
     <div className="min-h-screen bg-po">
@@ -38,7 +46,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-5 py-8">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-5 sm:py-8">{children}</main>
     </div>
   );
 }
