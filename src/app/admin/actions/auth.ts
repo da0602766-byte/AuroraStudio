@@ -21,7 +21,19 @@ export async function login(_prev: { error?: string } | undefined, form: FormDat
   const ok = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
   if (!user || !ok) return { error: "E-mail ou senha incorretos." };
 
-  await createSession(user);
+  // Um erro de configuração aqui derrubava a página com "Application error"
+  // e nenhuma pista: a senha estava certa, mas a sessão não podia ser
+  // assinada. Melhor dizer o que falta.
+  try {
+    await createSession(user);
+  } catch (e) {
+    console.error("Falha ao criar a sessão", e);
+    return {
+      error:
+        "O acesso não está configurado corretamente. Confira a variável AUTH_SECRET na hospedagem: ela precisa ter no mínimo 32 caracteres.",
+    };
+  }
+
   await audit(user.id, "LOGIN", "sessao", null, { ip });
   redirect("/admin");
 }
