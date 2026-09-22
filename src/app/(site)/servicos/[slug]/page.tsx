@@ -18,6 +18,12 @@ async function load(slug: string) {
   });
 }
 
+/** Gera uma página pronta para cada serviço ativo, servida direto do CDN. */
+export async function generateStaticParams() {
+  const servicos = await prisma.service.findMany({ where: { active: true }, select: { slug: true } });
+  return servicos.map((s) => ({ slug: s.slug }));
+}
+
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const sv = await load(params.slug);
   return sv ? { title: sv.name, description: sv.description ?? undefined } : {};

@@ -5,7 +5,17 @@ import { getCachedSettings } from "@/lib/settings";
 import { waLink } from "@/lib/whatsapp";
 import type { Metadata } from "next";
 
-export const dynamic = "force-dynamic";
+/**
+ * As páginas públicas passam a ser geradas uma vez e servidas prontas pelo
+ * CDN, em vez de montadas no servidor a cada clique — a navegação deixa de
+ * esperar por uma função e por uma consulta ao banco.
+ *
+ * Toda ação do painel chama `revalidatePath("/", "layout")` ao salvar, então
+ * a proprietária vê a mudança imediatamente. Os 5 minutos abaixo são só a
+ * rede de segurança. Páginas que dependem da hora ou de dados de uma cliente
+ * específica continuam dinâmicas, cada uma declarando isso no próprio arquivo.
+ */
+export const revalidate = 300;
 
 export async function generateMetadata(): Promise<Metadata> {
   const s = await getCachedSettings();

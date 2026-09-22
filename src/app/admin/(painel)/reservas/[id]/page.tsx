@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/admin/StatusBadge";
 import { SubmitButton } from "@/components/admin/Buttons";
 import { ActionForm } from "@/components/admin/ActionForm";
 import { changeBookingStatus, confirmDeposit, registerPayment, reschedule } from "../../../actions/bookings";
+import { siteUrl } from "@/lib/site-url";
 
 const METHOD: Record<string, string> = { PIX: "Pix", CARTAO: "Cartão", DINHEIRO: "Dinheiro", OUTRO: "Outro" };
 const KIND: Record<string, string> = { SINAL: "Sinal", RESTANTE: "Restante", INTEGRAL: "Integral" };
@@ -25,14 +26,14 @@ export default async function BookingDetail({ params }: { params: { id: string }
   });
   if (!b) notFound();
   const s = await getSettings();
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
+  const base = siteUrl();
   const remaining = Math.max(0, b.priceCents - b.paidCents);
   const active = b.status === "AGUARDANDO_PAGAMENTO" || b.status === "CONFIRMADO";
   const when = fmt(b.startsAt, "EEEE, dd/MM 'às' HH:mm");
 
   const msgs = [
     { label: "Lembrete", text: `Olá, ${firstName(b.client.name)}! Passando para lembrar do seu horário de ${b.service.name} ${when}. Até lá!` },
-    { label: "Confirmação", text: `Olá, ${firstName(b.client.name)}! Sua reserva de ${b.service.name} ${when} está confirmada. Detalhes: ${siteUrl}/reserva/${b.token}` },
+    { label: "Confirmação", text: `Olá, ${firstName(b.client.name)}! Sua reserva de ${b.service.name} ${when} está confirmada. Detalhes: ${base}/reserva/${b.token}` },
     ...(b.status === "AGUARDANDO_PAGAMENTO"
       ? [{ label: "Cobrar sinal", text: `Olá, ${firstName(b.client.name)}! Para confirmar seu horário de ${b.service.name} ${when}, falta o sinal de ${brl(b.depositCents)} via Pix${s.pixKey ? ` (chave: ${s.pixKey})` : ""}.` }]
       : []),
@@ -200,7 +201,7 @@ export default async function BookingDetail({ params }: { params: { id: string }
               ))}
             </ol>
             <p className="mt-4 text-xs text-marrom-claro">
-              Link da cliente: <span className="break-all">{siteUrl}/reserva/{b.token}</span>
+              Link da cliente: <span className="break-all">{base}/reserva/{b.token}</span>
             </p>
           </section>
         </div>

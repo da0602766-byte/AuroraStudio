@@ -8,6 +8,9 @@ import { BookingWizard, type ServiceOption } from "@/components/booking/BookingW
 
 export const metadata: Metadata = { title: "Agendar horário", robots: { index: false } };
 
+// Depende do dia de hoje e da disponibilidade ao vivo.
+export const dynamic = "force-dynamic";
+
 export default async function BookPage({ searchParams }: { searchParams: { servico?: string } }) {
   const s = await getSettings();
   const services = await prisma.service.findMany({

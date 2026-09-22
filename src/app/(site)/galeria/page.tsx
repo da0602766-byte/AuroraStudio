@@ -7,6 +7,9 @@ export const metadata: Metadata = { title: "Trabalhos" };
 
 const PER_PAGE = 24;
 
+// Filtra por categoria e página pela URL, então é montada a cada pedido.
+export const dynamic = "force-dynamic";
+
 export default async function GalleryPage({ searchParams }: { searchParams: { categoria?: string; pagina?: string } }) {
   const page = Math.max(1, Number(searchParams.pagina) || 1);
   const categories = await prisma.category.findMany({

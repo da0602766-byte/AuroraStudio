@@ -94,14 +94,34 @@ PostgreSQL. Ficam em `src/lib/__tests__/`, no runner do próprio Node.
 
 ## Cache do site
 
-As páginas públicas são renderizadas a cada visita, mas as consultas ficam
-guardadas por 5 minutos (`src/lib/cache.ts`). Toda ação do painel que muda
-conteúdo do site derruba esse cache na hora, então a proprietária vê a
-alteração imediatamente. Agenda, página da reserva e consulta por código nunca
-são cacheadas.
+As páginas públicas são geradas uma vez e servidas prontas pelo CDN, em vez de
+montadas no servidor a cada clique. Quem decide isso é o `revalidate` do
+`(site)/layout.tsx`; páginas que precisam de dados ao vivo declaram
+`dynamic = "force-dynamic"` no próprio arquivo:
 
-Ao criar uma consulta nova para o site público, use `cacheSite(...)` e garanta
-que a ação que altera esses dados passe por `revalidateSite()` / `done()`.
+| Página | Como é servida | Por quê |
+|---|---|---|
+| Inicial, privacidade, consulta | Pronta, do CDN | Conteúdo igual para todo mundo |
+| Cada serviço | Gerada no build | Uma por serviço, via `generateStaticParams` |
+| Agendar | A cada pedido | Depende do dia de hoje e da agenda |
+| Galeria | A cada pedido | Filtra por categoria e página pela URL |
+| Reserva pelo link | A cada pedido | Dados de uma cliente específica |
+
+Toda ação do painel chama `revalidatePath("/", "layout")` e `revalidateTag`,
+então a proprietária vê a alteração na hora. Os 5 minutos do `revalidate` são
+só a rede de segurança.
+
+As consultas também ficam guardadas (`src/lib/cache.ts`), o que ajuda as
+páginas dinâmicas. Ao criar uma consulta nova para o site público, use
+`cacheSite(...)` e garanta que a ação que altera esses dados passe por
+`revalidateSite()` / `done()`.
+
+## Endereço do site
+
+`src/lib/site-url.ts` resolve o endereço público. Ele usa
+`NEXT_PUBLIC_SITE_URL` quando existe e, na falta dela, a variável `URL` que a
+Netlify publica sozinha — assim o site continua correto mesmo se o projeto for
+renomeado. **Na Netlify, o mais seguro é não cadastrar `NEXT_PUBLIC_SITE_URL`.**
 
 ## Mudanças no banco
 
