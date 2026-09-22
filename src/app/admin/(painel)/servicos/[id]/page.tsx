@@ -5,9 +5,10 @@ import { SubmitButton } from "@/components/admin/Buttons";
 import { deleteService } from "@/app/admin/actions/catalog";
 import { ServiceForm } from "../ServiceForm";
 
-export default async function EditServicePage({ params }: { params: { id: string } }) {
+export default async function EditServicePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const [service, categories] = await Promise.all([
-    prisma.service.findUnique({ where: { id: params.id } }),
+    prisma.service.findUnique({ where: { id } }),
     prisma.category.findMany({ orderBy: { order: "asc" } }),
   ]);
   if (!service) notFound();
