@@ -2,7 +2,7 @@
 // Estruturado para uma profissional hoje e várias no futuro (Professional).
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   // "native" serve para desenvolvimento; o segundo é o runtime das funções da
   // Netlify (AWS Lambda). Sem ele o site sobe e quebra ao consultar o banco,
   // com erro de "query engine" difícil de diagnosticar.
@@ -10,7 +10,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   // Conexão agrupada (pooled): usada pelo site.
   url       = env("DATABASE_URL")
   // Conexão direta: usada pelas migrations, que não passam bem pelo pooler.
@@ -21,14 +21,15 @@ datasource db {
 // ─── Acesso administrativo ─────────────────────────────────────────
 
 model AdminUser {
-  id           String       @id @default(cuid())
-  email        String       @unique
-  name         String
-  passwordHash String
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  auditLogs    AuditLog[]
-  professional Professional?
+  id             String        @id @default(cuid())
+  email          String        @unique
+  name           String
+  passwordHash   String
+  sessionVersion Int           @default(1)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  auditLogs      AuditLog[]
+  professional   Professional?
 }
 
 // ─── Profissionais (preparado para crescer) ────────────────────────
@@ -76,39 +77,39 @@ model TimeBlock {
 // ─── Configurações gerais (linha única, id = 1) ────────────────────
 
 model BusinessSettings {
-  id                   Int      @id @default(1)
-  name                 String
-  slogan               String?
-  about                String?
-  ownerName            String?
-  ownerBio             String?
-  ownerPhotoUrl        String?
-  heroImageUrl         String?
-  whatsapp             String?
-  instagram            String?
-  address              String?
-  region               String?
-  mapsUrl              String?
-  paymentMethods       String?
-  cancellationPolicy   String?
-  bookingInstructions  String?
-  privacyContactEmail  String?
+  id                  Int     @id @default(1)
+  name                String
+  slogan              String?
+  about               String?
+  ownerName           String?
+  ownerBio            String?
+  ownerPhotoUrl       String?
+  heroImageUrl        String?
+  whatsapp            String?
+  instagram           String?
+  address             String?
+  region              String?
+  mapsUrl             String?
+  paymentMethods      String?
+  cancellationPolicy  String?
+  bookingInstructions String?
+  privacyContactEmail String?
 
   // Regras de agendamento
-  minAdvanceHours      Int      @default(24)
-  cancelMinHours       Int      @default(5)
-  bookingWindowDays    Int      @default(60)
-  depositEnabled       Boolean  @default(true)
-  depositCents         Int      @default(1500)
-  holdMinutes          Int      @default(60)
-  bookingCodePrefix    String   @default("AU")
+  minAdvanceHours   Int     @default(24)
+  cancelMinHours    Int     @default(5)
+  bookingWindowDays Int     @default(60)
+  depositEnabled    Boolean @default(true)
+  depositCents      Int     @default(1500)
+  holdMinutes       Int     @default(60)
+  bookingCodePrefix String  @default("AU")
 
   // Pix para o sinal (pagamento manual na Fase 1)
-  pixKey               String?
-  pixKeyType           String?
-  pixHolderName        String?
+  pixKey        String?
+  pixKeyType    String?
+  pixHolderName String?
 
-  updatedAt            DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 }
 
 model Faq {
@@ -205,49 +206,53 @@ enum BookingSource {
 }
 
 model Booking {
-  id             String         @id @default(cuid())
-  code           String         @unique
-  token          String         @unique
+  id             String        @id @default(cuid())
+  code           String        @unique
+  token          String        @unique
   professionalId String
-  professional   Professional   @relation(fields: [professionalId], references: [id])
+  professional   Professional  @relation(fields: [professionalId], references: [id])
   clientId       String
-  client         Client         @relation(fields: [clientId], references: [id])
+  client         Client        @relation(fields: [clientId], references: [id])
   serviceId      String
-  service        Service        @relation(fields: [serviceId], references: [id])
+  service        Service       @relation(fields: [serviceId], references: [id])
   startsAt       DateTime
   endsAt         DateTime
   status         BookingStatus
-  source         BookingSource  @default(SITE)
-  isEncaixe      Boolean        @default(false)
+  source         BookingSource @default(SITE)
+  isEncaixe      Boolean       @default(false)
 
   // Valores congelados no momento da reserva
-  priceCents     Int
-  depositCents   Int            @default(0)
-  paidCents      Int            @default(0)
+  priceCents   Int
+  depositCents Int @default(0)
+  paidCents    Int @default(0)
 
   // Ficha de segurança do atendimento
-  isAllergic     Boolean        @default(false)
+  isAllergic     Boolean @default(false)
   allergyDetails String?
-  isPregnant     Boolean        @default(false)
+  isPregnant     Boolean @default(false)
   clientNotes    String?
-  healthConsent  Boolean        @default(false)
+  healthConsent  Boolean @default(false)
 
-  holdExpiresAt  DateTime?
-  proofSentAt    DateTime?
-  cancelledAt    DateTime?
-  cancelReason   String?
-  lateCancel     Boolean        @default(false)
-  rescheduleCount Int           @default(0)
+  holdExpiresAt   DateTime?
+  proofSentAt     DateTime?
+  cancelledAt     DateTime?
+  cancelReason    String?
+  lateCancel      Boolean   @default(false)
+  rescheduleCount Int       @default(0)
 
-  events         BookingEvent[]
-  payments       Payment[]
-  review         Review?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  events    BookingEvent[]
+  payments  Payment[]
+  review    Review?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 
   @@index([professionalId, startsAt])
   @@index([clientId])
   @@index([status])
+  @@index([startsAt])
+  @@index([status, startsAt])
+  @@index([status, holdExpiresAt])
+  @@index([status, cancelledAt])
 }
 
 model BookingEvent {
@@ -297,6 +302,7 @@ model Payment {
   createdAt   DateTime      @default(now())
 
   @@index([bookingId])
+  @@index([status, createdAt])
 }
 
 // ─── Avaliações ────────────────────────────────────────────────────
@@ -319,6 +325,8 @@ model Review {
   featured    Boolean      @default(false)
   verified    Boolean      @default(false)
   createdAt   DateTime     @default(now())
+
+  @@index([status, createdAt])
 }
 
 // ─── Auditoria ─────────────────────────────────────────────────────
@@ -334,4 +342,15 @@ model AuditLog {
   createdAt   DateTime   @default(now())
 
   @@index([createdAt])
+}
+
+// Limitador compartilhado entre as instâncias serverless da Netlify.
+// A chave é sempre um hash; IP e e-mail não são gravados em texto aberto.
+model RateLimitBucket {
+  key       String   @id
+  count     Int
+  resetAt   DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
 }
