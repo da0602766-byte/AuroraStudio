@@ -18,8 +18,15 @@ const LINKS = [
 export function AdminNav({ pendingReviews }: { pendingReviews: number }) {
   const path = usePathname();
   return (
-    <nav aria-label="Painel" className="-mx-5 overflow-x-auto px-5 sm:mx-0 sm:px-0">
-      <ul className="flex gap-1 whitespace-nowrap">
+    /*
+     * O menu tem 9 itens e não cabe na largura de um celular. Quando ele rolava
+     * na horizontal, o navegador o arrastava sozinho a cada navegação para
+     * mostrar o item ativo — uma animação de cerca de dois segundos que
+     * acontecia depois de a página já estar pronta e parecia lentidão.
+     * Quebrando em linhas, não há o que rolar.
+     */
+    <nav aria-label="Painel">
+      <ul className="flex flex-wrap gap-1">
         {LINKS.map((l) => {
           const active = l.href === "/admin" ? path === "/admin" : path.startsWith(l.href);
           return (
@@ -27,7 +34,7 @@ export function AdminNav({ pendingReviews }: { pendingReviews: number }) {
               <Link
                 href={l.href}
                 aria-current={active ? "page" : undefined}
-                className={`inline-flex min-h-[40px] items-center rounded-full px-4 text-sm ${
+                className={`inline-flex min-h-[40px] items-center whitespace-nowrap rounded-full px-4 text-sm ${
                   active ? "bg-white text-bordo" : "text-white/80 hover:text-white"
                 }`}
               >
