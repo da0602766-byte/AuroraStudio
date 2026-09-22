@@ -19,12 +19,13 @@ export default async function ReservationPage({
   params,
   searchParams,
 }: {
-  params: { token: string };
-  searchParams: { nova?: string };
+  params: Promise<{ token: string }>;
+  searchParams: Promise<{ nova?: string }>;
 }) {
-  if (!/^[A-Za-z0-9_-]{20,64}$/.test(params.token)) notFound();
+  const [{ token }, query] = await Promise.all([params, searchParams]);
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) notFound();
   const b = await prisma.booking.findUnique({
-    where: { token: params.token },
+    where: { token },
     include: { service: true, client: true, review: true },
   });
   if (!b) notFound();
@@ -36,7 +37,7 @@ export default async function ReservationPage({
   const when = `${longDate(b.startsAt)} às ${timeLabel(localTimeOf(b.startsAt))}`;
   const whenShort = fmt(b.startsAt, "dd/MM 'às' HH:mm");
   const remaining = Math.max(0, b.priceCents - b.paidCents);
-  const isNew = searchParams.nova === "1";
+  const isNew = query.nova === "1";
 
   const waDuvida = waLink(s.whatsapp, `Olá! Tenho uma dúvida sobre minha reserva ${b.code} (${b.service.name}, ${whenShort}).`);
   const waRemarcar = waLink(s.whatsapp, `Olá! Gostaria de remarcar minha reserva ${b.code} (${b.service.name}, ${whenShort}).`);
