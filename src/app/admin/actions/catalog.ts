@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath, revalidateTag } from "next/cache";
-import { SITE_TAG } from "@/lib/cache";
+import { ADMIN_NAV_TAG, SITE_TAG } from "@/lib/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
@@ -20,7 +20,7 @@ const str = (v: FormDataEntryValue | null, max = 2000) => String(v ?? "").trim()
 
 function revalidateSite() {
   revalidatePath("/", "layout");
-  revalidateTag(SITE_TAG); // derruba o cache das consultas do site
+  revalidateTag(SITE_TAG, { expire: 0 }); // derruba o cache das consultas do site
 }
 
 // ─── Serviços ───────────────────────────────────────────────────────
@@ -203,6 +203,7 @@ export async function moderateReview(form: FormData) {
     if (r) await prisma.review.update({ where: { id }, data: { featured: !r.featured, status: "APROVADO" } });
   } else if (action === "excluir") await prisma.review.delete({ where: { id } }).catch(() => null);
   await audit(admin.id, `AVALIACAO_${action.toUpperCase()}`, "avaliacao", id);
+  revalidateTag(ADMIN_NAV_TAG, { expire: 0 });
   revalidateSite();
 }
 
@@ -224,6 +225,7 @@ export async function addReview(_prev: FormResult, form: FormData): Promise<Form
     },
   });
   await audit(admin.id, "AVALIACAO_ADICIONADA", "avaliacao", null, { clientName });
+  revalidateTag(ADMIN_NAV_TAG, { expire: 0 });
   revalidateSite();
   return { ok: "Depoimento publicado." };
 }
