@@ -248,3 +248,19 @@ export async function deleteBlock(form: FormData) {
   await audit(admin.id, "BLOQUEIO_REMOVIDO", "bloqueio", id);
   revalidatePath("/admin", "layout");
 }
+
+/**
+ * Registra que a avaliação foi pedida.
+ *
+ * Chamada quando a proprietária toca em "Pedir avaliação": serve para ela
+ * saber de quem já cobrou e para o pedido automático não insistir com quem
+ * já recebeu.
+ */
+export async function marcarAvaliacaoPedida(bookingId: string): Promise<void> {
+  await requireAdmin();
+  await prisma.booking.updateMany({
+    where: { id: bookingId, reviewAskedAt: null },
+    data: { reviewAskedAt: new Date() },
+  });
+  revalidatePath("/admin", "layout");
+}

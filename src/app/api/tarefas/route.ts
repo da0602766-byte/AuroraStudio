@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { prisma } from "@/lib/db";
 import { expireStaleHolds } from "@/lib/availability";
-import { enviarLembretesDeAmanha } from "@/lib/notificacoes";
+import { enviarLembretesDeAmanha, pedirAvaliacoesDeOntem } from "@/lib/notificacoes";
 import { alertarErro } from "@/lib/alerta";
 import { fmt } from "@/lib/time";
 
@@ -55,6 +55,12 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       await alertarErro("tarefas/lembretes", e);
       resultado.lembretes = "falhou";
+    }
+    try {
+      resultado.avaliacoes = await pedirAvaliacoesDeOntem();
+    } catch (e) {
+      await alertarErro("tarefas/avaliacoes", e);
+      resultado.avaliacoes = "falhou";
     }
   } else {
     resultado.lembretes = `fora do horário (agora ${horaLocal}h, envio às ${HORA_DOS_LEMBRETES}h)`;

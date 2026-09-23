@@ -155,5 +155,53 @@ export async function enviarLembretesDeAmanha(): Promise<{ reservas: number; ema
   return { reservas: reservas.length, emailsCliente };
 }
 
+/**
+ * Pede a avaliação de quem foi atendida ontem e deixou e-mail.
+ *
+ * Só complementa o pedido pelo WhatsApp que a proprietária envia no painel:
+ * o e-mail é opcional no agendamento, então isso alcança uma parte das
+ * clientes, não todas. `reviewAskedAt` impede insistir com quem já recebeu.
+ */
+export async function pedirAvaliacoesDeOntem(): Promise<{ pedidos: number }> {
+  const s = await getSettings();
+  const agora = new Date();
+  const de = new Date(agora.getTime() - 36 * 60 * 60_000);
+  const ate = new Date(agora.getTime() - 12 * 60 * 60_000);
+
+  const reservas = await prisma.booking.findMany({
+    where: {
+      startsAt: { gte: de, lt: ate },
+      status: "CONCLUIDO",
+      reviewAskedAt: null,
+      review: null,
+      client: { email: { not: null } },
+    },
+    include: { client: true, service: true },
+  });
+  if (!reservas.length) return { pedidos: 0 };
+
+  const enviadas: string[] = [];
+  for (const b of reservas) {
+    if (!b.client.email) continue;
+    const ok = await enviarEmail({
+      para: { email: b.client.email, nome: b.client.name },
+      assunto: `Como foi o seu atendimento no ${s.name}?`,
+      texto: `Olá, ${firstName(b.client.name)}! Como foi o seu ${b.service.name.toLowerCase()}? Conte para a gente: ${siteUrl()}/avaliar/${b.token}`,
+      html: moldura(
+        "Como foi o seu atendimento?",
+        `<p style="margin:0 0 12px;font-size:15px">Olá, ${esc(firstName(b.client.name))}! Espero que tenha gostado do resultado do seu ${esc(b.service.name.toLowerCase())}.</p>
+         <p style="margin:0 0 12px;font-size:15px">Se puder, deixe sua opinião — leva menos de um minuto e ajuda quem ainda não conhece o estúdio.</p>
+         <p style="margin:20px 0 0"><a href="${siteUrl()}/avaliar/${b.token}" style="display:inline-block;background:#5E1A2C;color:#fff;text-decoration:none;padding:12px 22px;border-radius:999px;font-size:15px">Avaliar meu atendimento</a></p>`
+      ),
+    });
+    if (ok) enviadas.push(b.id);
+  }
+
+  if (enviadas.length) {
+    await prisma.booking.updateMany({ where: { id: { in: enviadas } }, data: { reviewAskedAt: agora } });
+  }
+  return { pedidos: enviadas.length };
+}
+
 /** Data local de amanhã, usada nos testes e no resumo. */
 export const amanhaLocal = (agora = new Date()) => localDateOf(new Date(agora.getTime() + 24 * 60 * 60_000));

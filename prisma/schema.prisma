@@ -238,6 +238,9 @@ model Booking {
   /// Quando o lembrete de véspera foi enviado. Impede repetir o aviso se a
   /// tarefa agendada rodar mais de uma vez no mesmo dia.
   reminderSentAt  DateTime?
+  /// Quando a avaliação foi pedida. Serve para a proprietária saber de quem
+  /// já cobrou e para o pedido automático não insistir.
+  reviewAskedAt   DateTime?
   cancelledAt     DateTime?
   cancelReason    String?
   lateCancel      Boolean   @default(false)

@@ -183,6 +183,32 @@ requisição mandaria centenas de e-mails e derrubaria a cota.
 Só os pontos que significam reserva ou dinheiro perdido disparam alerta.
 Falha ao apagar uma foto, por exemplo, continua só no log.
 
+## Pedido de avaliação
+
+Depois de concluir um atendimento, a página da reserva no painel mostra em
+destaque **Peça a avaliação**, com um botão que abre o WhatsApp com a
+mensagem pronta e o link de `/avaliar/[token]`. O botão fica no topo, junto
+das ações, porque é o que a proprietária quer fazer no instante seguinte a
+concluir — enterrado no fim da página, o passo seria esquecido.
+
+`/avaliar/[token]` é uma página dedicada, separada da página da reserva: a
+cliente abre o link já sabendo o que fazer e encontra a pergunta na primeira
+tela. Ela se adapta à situação:
+
+| Situação da reserva | O que a cliente vê |
+|---|---|
+| Concluída, sem avaliação | A pergunta e as estrelas |
+| Concluída, já avaliada | Agradecimento, sem o formulário |
+| Ainda vai acontecer | Aviso de que o link vale depois do atendimento |
+| Cancelada ou falta | Explicação de que não há o que avaliar |
+
+`reviewAskedAt` registra quando o pedido foi feito, para a proprietária saber
+de quem já cobrou e para o pedido automático não insistir.
+
+Quem deixou e-mail também recebe o pedido sozinho, no dia seguinte ao
+atendimento, pela tarefa diária. Como o e-mail é opcional no agendamento,
+isso complementa o envio pelo WhatsApp em vez de substituí-lo.
+
 ## Tarefas automáticas
 
 `netlify/functions/agendador.mts` chama `POST /api/tarefas` de hora em hora,

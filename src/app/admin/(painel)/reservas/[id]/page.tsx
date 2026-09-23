@@ -8,6 +8,7 @@ import { waLink } from "@/lib/whatsapp";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { SubmitButton } from "@/components/admin/Buttons";
 import { ActionForm } from "@/components/admin/ActionForm";
+import { BotaoPedirAvaliacao } from "@/components/admin/BotaoPedirAvaliacao";
 import { changeBookingStatus, confirmDeposit, registerPayment, reschedule } from "../../../actions/bookings";
 import { siteUrl } from "@/lib/site-url";
 
@@ -23,6 +24,7 @@ export default async function BookingDetail({ params }: { params: Promise<{ id: 
       service: true,
       payments: { orderBy: { createdAt: "asc" } },
       events: { orderBy: { createdAt: "desc" } },
+      review: true,
     },
   });
   if (!b) notFound();
@@ -39,6 +41,11 @@ export default async function BookingDetail({ params }: { params: Promise<{ id: 
       ? [{ label: "Cobrar sinal", text: `Olá, ${firstName(b.client.name)}! Para confirmar seu horário de ${b.service.name} ${when}, falta o sinal de ${brl(b.depositCents)} via Pix${s.pixKey ? ` (chave: ${s.pixKey})` : ""}.` }]
       : []),
   ];
+
+  const waAvaliacao = waLink(
+    b.client.phone,
+    `Olá, ${firstName(b.client.name)}! Espero que tenha gostado do resultado. Se puder, deixe sua avaliação aqui: ${base}/avaliar/${b.token}`
+  );
 
   return (
     <div className="space-y-6">
@@ -67,6 +74,47 @@ export default async function BookingDetail({ params }: { params: Promise<{ id: 
       <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
         <div className="space-y-6">
           {/* Ações principais */}
+          {/*
+            * O pedido de avaliação fica aqui, e não junto das mensagens lá
+            * embaixo, porque é o que a proprietária quer fazer no instante
+            * seguinte a concluir o atendimento — rolar a página inteira até
+            * achar o botão faria o passo ser esquecido.
+            */}
+          {b.status === "CONCLUIDO" && !b.review && waAvaliacao && (
+            <section className="rounded-2xl border border-ouro/50 bg-ouro-palido/40 p-5">
+              <h2 className="text-xl">Peça a avaliação</h2>
+              <p className="mt-1 text-[15px] text-marrom-medio">
+                {b.reviewAskedAt
+                  ? `Você já pediu em ${fmt(b.reviewAskedAt, "dd/MM 'às' HH:mm")}. A cliente ainda não respondeu.`
+                  : "Atendimento concluído. Envie o link para a cliente contar como foi."}
+              </p>
+              <div className="mt-4">
+                <BotaoPedirAvaliacao bookingId={b.id} href={waAvaliacao} jaPedido={!!b.reviewAskedAt} />
+              </div>
+            </section>
+          )}
+
+          {b.status === "CONCLUIDO" && b.review && (
+            <section className="painel-bloco">
+              <h2 className="text-xl">Avaliação da cliente</h2>
+              <p className="mt-2 text-lg text-ouro">
+                {"★".repeat(b.review.rating)}
+                <span className="text-marrom-claro">{"☆".repeat(5 - b.review.rating)}</span>
+              </p>
+              <p className="mt-2 text-[15px] leading-relaxed text-marrom-medio">“{b.review.comment}”</p>
+              <p className="mt-3 text-sm text-marrom-claro">
+                {b.review.status === "PENDENTE"
+                  ? "Aguardando sua aprovação para aparecer no site."
+                  : b.review.status === "APROVADO"
+                    ? "Publicada no site."
+                    : "Rejeitada — não aparece no site."}{" "}
+                <Link href="/admin/avaliacoes" className="text-bordo underline underline-offset-4">
+                  Ver em Avaliações
+                </Link>
+              </p>
+            </section>
+          )}
+
           <section className="painel-bloco space-y-4">
             <h2 className="text-xl">Ações</h2>
             <div className="flex flex-wrap gap-2">
