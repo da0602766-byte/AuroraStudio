@@ -153,6 +153,56 @@ nada. Ele só informa qual pagamento mudou; o código então:
    checagem de conflito antes de devolvê-la à agenda — e, se o horário já
    tiver dono, registra um aviso no histórico em vez de criar reserva dupla.
 
+## Avisos por e-mail
+
+Sem `BREVO_API_KEY` o site funciona igual, só que em silêncio. Com ela ligada:
+
+| Quando | Quem recebe | O quê |
+|---|---|---|
+| Reserva nova pelo site | Proprietária | Cliente, serviço, horário, ficha de saúde e link do painel |
+| Todo dia às 18h | Proprietária | Atendimentos de amanhã, com link de WhatsApp pronto por cliente |
+| Todo dia às 18h | Cliente | Lembrete da véspera — só para quem deixou e-mail |
+| Erro no servidor | Proprietária | O erro, onde aconteceu e o contexto |
+
+O [Brevo](https://www.brevo.com) foi escolhido por aceitar um endereço comum
+(Gmail) como remetente, sem exigir domínio próprio, e dar 300 envios por dia
+no plano gratuito. Confirme o remetente em **Senders & IP** antes de usar.
+
+O lembrete vai para a proprietária com links de WhatsApp, e não direto para a
+cliente, porque o e-mail é opcional no agendamento: mensagem automática
+sozinha não alcançaria a maioria.
+
+### Alertas de erro
+
+`alertarErro()` registra no log e avisa por e-mail. Erros iguais são
+agrupados — números na mensagem são normalizados, então o mesmo erro com ids
+diferentes conta como um só. Cada erro distinto avisa no máximo uma vez por
+hora, com teto de 20 avisos por dia. Sem isso, uma falha que acontece a cada
+requisição mandaria centenas de e-mails e derrubaria a cota.
+
+Só os pontos que significam reserva ou dinheiro perdido disparam alerta.
+Falha ao apagar uma foto, por exemplo, continua só no log.
+
+## Tarefas automáticas
+
+`netlify/functions/agendador.mts` chama `POST /api/tarefas` de hora em hora,
+autenticado por `CRON_SECRET`. A função não tem regra de negócio: toda a
+lógica fica no Next, para poder ser testada e mudar de hospedagem sem
+reescrever nada.
+
+- **Toda hora:** libera sinais vencidos. Antes isso só acontecia quando
+  alguém abria o site ou o painel — sem visita, o horário de uma reserva
+  morta ficava bloqueado.
+- **Às 18h:** envia os lembretes da véspera. `reminderSentAt` impede repetir
+  se a tarefa rodar duas vezes.
+
+Para disparar à mão durante um teste:
+
+```bash
+curl -X POST "https://SEU-ENDERECO/api/tarefas?lembretes=1" \
+  -H "authorization: Bearer $CRON_SECRET"
+```
+
 ## Endereço do site
 
 `src/lib/site-url.ts` resolve o endereço público. Ele usa

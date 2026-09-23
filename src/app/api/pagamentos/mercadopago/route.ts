@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { assertSlotFree, BookingError, lockAgenda } from "@/lib/booking";
 import { brl } from "@/lib/format";
 import { assinaturaConfere, consultarPagamento, mercadoPagoConfigurado } from "@/lib/payments/mercadopago";
+import { alertarErro } from "@/lib/alerta";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
   try {
     pagamento = await consultarPagamento(idPagamento);
   } catch (e) {
-    console.error("Falha ao consultar o pagamento no Mercado Pago", e);
+    await alertarErro("consultar pagamento", e, { idPagamento });
     // Aqui vale reenviar: pode ter sido instabilidade momentânea.
     return NextResponse.json({ error: "falha ao consultar" }, { status: 503 });
   }
@@ -128,7 +129,7 @@ export async function POST(req: NextRequest) {
     if (e instanceof BookingError) {
       // Pagou, mas o horário não está mais livre. A reserva fica como está e
       // a proprietária resolve pelo painel — devolver ou reagendar.
-      console.error("Sinal pago para horário já ocupado", { idPagamento, reserva: b.code, motivo: e.message });
+      await alertarErro("sinal pago para horário ocupado", e, { idPagamento, reserva: b.code });
       await prisma.bookingEvent.create({
         data: {
           bookingId: b.id,
@@ -139,7 +140,7 @@ export async function POST(req: NextRequest) {
       }).catch(() => null);
       return NextResponse.json({ ok: true });
     }
-    console.error("Erro ao confirmar o pagamento", e);
+    await alertarErro("confirmar pagamento", e, { idPagamento, reserva: b.code });
     return NextResponse.json({ error: "erro interno" }, { status: 500 });
   }
 

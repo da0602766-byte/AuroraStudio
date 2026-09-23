@@ -235,6 +235,9 @@ model Booking {
 
   holdExpiresAt   DateTime?
   proofSentAt     DateTime?
+  /// Quando o lembrete de véspera foi enviado. Impede repetir o aviso se a
+  /// tarefa agendada rodar mais de uma vez no mesmo dia.
+  reminderSentAt  DateTime?
   cancelledAt     DateTime?
   cancelReason    String?
   lateCancel      Boolean   @default(false)

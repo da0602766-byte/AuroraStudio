@@ -4,6 +4,7 @@ import { getSettings } from "@/lib/settings";
 import { siteUrl } from "@/lib/site-url";
 import { clientIp, sharedRateLimit } from "@/lib/rate-limit";
 import { criarCobrancaPix, mercadoPagoConfigurado, PagamentoError } from "@/lib/payments/mercadopago";
+import { alertarErro } from "@/lib/alerta";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +86,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ token:
     });
   } catch (e) {
     if (e instanceof PagamentoError) return NextResponse.json({ error: e.message }, { status: 502 });
-    console.error("Erro ao gerar o Pix", e);
+    await alertarErro("gerar Pix", e, { reserva: b.code });
     return NextResponse.json({ error: "Não foi possível gerar o Pix agora." }, { status: 500 });
   }
 }

@@ -46,6 +46,7 @@ export async function createManualBooking(_prev: FormResult, form: FormData): Pr
       initialStatus: form.get("awaitDeposit") === "on" ? "AGUARDANDO_PAGAMENTO" : "CONFIRMADO",
     });
     id = b.id;
+    // Sem aviso por e-mail: quem criou a reserva foi a própria proprietária.
     await audit(admin.id, "RESERVA_CRIADA_MANUAL", "reserva", id, { code: b.code });
   } catch (e) {
     if (e instanceof BookingError) return { error: e.message };
