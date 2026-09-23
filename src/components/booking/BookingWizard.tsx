@@ -86,6 +86,8 @@ export function BookingWizard(props: {
   const [consent, setConsent] = useState(false);
   const [website, setWebsite] = useState("");
 
+  // Verificação do domínio do e-mail, feita no servidor ao sair do campo.
+  const [emailChecando, setEmailChecando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -226,6 +228,31 @@ export function BookingWizard(props: {
       else delete novos[campo];
       return novos;
     });
+    if (campo === "email" && !erro && email.trim()) conferirDominio(email.trim());
+  }
+
+  /**
+   * Pergunta ao servidor se o domínio do e-mail existe.
+   *
+   * O formato não basta: "maria@gmial.com" é impecável na forma e a
+   * mensagem simplesmente nunca chega. Quem decide de verdade é o servidor,
+   * na hora de gravar a reserva; isto aqui é só para avisar antes.
+   */
+  async function conferirDominio(valor: string) {
+    setEmailChecando(true);
+    try {
+      const r = await fetch(`/api/validar-email?email=${encodeURIComponent(valor)}`);
+      const d = await r.json();
+      // Se a cliente já mudou o campo, a resposta não vale mais.
+      if (valor !== email.trim()) return;
+      if (d && d.ok === false && d.motivo) {
+        setFieldErrors((atuais) => ({ ...atuais, email: d.motivo }));
+      }
+    } catch {
+      // Sem rede não dá para conferir: o servidor confere de novo ao reservar.
+    } finally {
+      setEmailChecando(false);
+    }
   }
 
   async function submit() {
@@ -465,7 +492,8 @@ export function BookingWizard(props: {
               <label htmlFor="email" className="rotulo">E-mail <span className="font-normal text-marrom-claro">(opcional)</span></label>
               <input id="email" className="campo" type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => aoSair("email")} aria-invalid={!!fieldErrors.email} />
               {fieldErrors.email && <p className="erro">{fieldErrors.email}</p>}
-              {!fieldErrors.email && sugestaoEmail && (
+              {!fieldErrors.email && emailChecando && <p className="ajuda">Conferindo o e-mail…</p>}
+              {!fieldErrors.email && !emailChecando && sugestaoEmail && (
                 <p className="ajuda">
                   Você quis dizer{" "}
                   <button

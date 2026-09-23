@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { bookingRequestSchema } from "@/lib/validators";
 import { BookingError, createBooking } from "@/lib/booking";
-import { validarTelefone } from "@/lib/format";
+import { emailParaceValido, sugerirEmail, validarTelefone } from "@/lib/format";
+import { dominioRecebeEmail } from "@/lib/email-dns";
 import { clientIp, sharedRateLimit } from "@/lib/rate-limit";
 import { avisarNovaReserva } from "@/lib/notificacoes";
 import { alertarErro } from "@/lib/alerta";
@@ -24,6 +25,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: issue?.message ?? "Confira os dados.", field: issue?.path[0] }, { status: 400 });
   }
   const d = parsed.data;
+  // O e-mail é opcional, mas se vier precisa poder receber mensagem: é por
+  // ele que seguem a confirmação e o lembrete.
+  if (d.email) {
+    if (!emailParaceValido(d.email)) {
+      return NextResponse.json({ error: "Confira o e-mail: parece faltar algo.", field: "email" }, { status: 400 });
+    }
+    if ((await dominioRecebeEmail(d.email)) === false) {
+      const sugestao = sugerirEmail(d.email);
+      return NextResponse.json(
+        {
+          error: sugestao
+            ? `Esse endereço não existe. Você quis dizer ${sugestao}?`
+            : "Esse endereço de e-mail não existe. Confira o que vem depois do @.",
+          field: "email",
+        },
+        { status: 400 }
+      );
+    }
+  }
+
   const tel = validarTelefone(d.phone);
   if (!tel.ok) return NextResponse.json({ error: tel.motivo, field: "phone" }, { status: 400 });
   const phone = tel.numero;

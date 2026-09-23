@@ -218,6 +218,17 @@ describe("emailParaceValido", () => {
   it("aceita endereços comuns", () => {
     assert.equal(emailParaceValido("maria@gmail.com"), true);
     assert.equal(emailParaceValido("maria.souza@uol.com.br"), true);
+    assert.equal(emailParaceValido("ana@aa.com"), true, "domínio curto é legítimo");
+    assert.equal(emailParaceValido("aaa@gmail.com"), true, "três letras iguais podem ser reais");
+  });
+
+  it("recusa campo preenchido a esmo", () => {
+    // Uma letra repetida dezenas de vezes passa em qualquer validação de
+    // formato: é sintaticamente perfeito e obviamente não é um endereço.
+    assert.equal(emailParaceValido("ooooooooooooooooooooo@oooooooooooooooo.ooo"), false);
+    assert.equal(emailParaceValido("aaaaa@gmail.com"), false, "usuário só de repetição");
+    assert.equal(emailParaceValido("maria@ooooo.com"), false, "domínio só de repetição");
+    assert.equal(emailParaceValido("maria@gmail.ooooo"), false, "final só de repetição");
   });
 
   it("recusa o que vai falhar na entrega", () => {

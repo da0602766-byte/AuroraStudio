@@ -180,10 +180,27 @@ export function sugerirEmail(email: string): string | null {
   return melhor && menor <= 2 ? `${usuario}@${melhor}` : null;
 }
 
+/**
+ * Um pedaço do endereço feito de uma letra repetida ("ooooooo") não é erro
+ * de digitação: é campo preenchido a esmo para passar da validação. Cinco
+ * repetições seguidas formando a parte inteira não acontecem em endereço
+ * real, mas "aaa@gmail.com" continua passando.
+ */
+function pedacoDigitadoAEsmo(parte: string): boolean {
+  return parte.length >= 5 && /^(.)\1+$/.test(parte);
+}
+
 /** Formato de e-mail, mais exigente que o mínimo: exige domínio com ponto. */
 export function emailParaceValido(email: string): boolean {
   const e = String(email || "").trim();
   if (e.length < 6 || e.length > 120) return false;
   if (/\s/.test(e) || e.includes("..")) return false;
-  return /^[^@]+@[^@.]+(\.[^@.]+)+$/.test(e);
+  if (!/^[^@]+@[^@.]+(\.[^@.]+)+$/.test(e)) return false;
+
+  const [usuario, dominio] = e.toLowerCase().split("@");
+  if (pedacoDigitadoAEsmo(usuario)) return false;
+  // Confere rótulo por rótulo: "ooooo.ooo" e "gmail.ooooo" caem aqui.
+  if (dominio.split(".").some(pedacoDigitadoAEsmo)) return false;
+
+  return true;
 }
