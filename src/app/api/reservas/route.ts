@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { bookingRequestSchema } from "@/lib/validators";
 import { BookingError, createBooking } from "@/lib/booking";
-import { normalizePhone } from "@/lib/format";
+import { validarTelefone } from "@/lib/format";
 import { clientIp, sharedRateLimit } from "@/lib/rate-limit";
 import { avisarNovaReserva } from "@/lib/notificacoes";
 import { alertarErro } from "@/lib/alerta";
@@ -24,8 +24,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: issue?.message ?? "Confira os dados.", field: issue?.path[0] }, { status: 400 });
   }
   const d = parsed.data;
-  const phone = normalizePhone(d.phone);
-  if (!phone) return NextResponse.json({ error: "Informe um WhatsApp com DDD.", field: "phone" }, { status: 400 });
+  const tel = validarTelefone(d.phone);
+  if (!tel.ok) return NextResponse.json({ error: tel.motivo, field: "phone" }, { status: 400 });
+  const phone = tel.numero;
 
   try {
     const booking = await createBooking({

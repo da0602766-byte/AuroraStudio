@@ -29,14 +29,20 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
   const s = await getCachedSettings();
   return (
-    <>
+    /*
+     * Coluna de altura mínima da tela, com o conteúdo crescendo: assim o
+     * rodapé fica colado embaixo mesmo quando a página é curta. Sem isto,
+     * durante o carregamento o rodapé subia e deixava uma faixa em branco
+     * abaixo dele, voltando ao lugar quando o conteúdo chegava.
+     */
+    <div className="flex min-h-dvh flex-col">
       <a href="#conteudo" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-white focus:px-4 focus:py-2">
         Pular para o conteúdo
       </a>
       <Header name={s.name} />
-      <main id="conteudo">{children}</main>
+      <main id="conteudo" className="flex-1">{children}</main>
       <Footer s={s} />
       <WhatsAppFloat href={waLink(s.whatsapp, `Olá! Vim pelo site da ${s.name} e gostaria de tirar uma dúvida.`)} />
-    </>
+    </div>
   );
 }

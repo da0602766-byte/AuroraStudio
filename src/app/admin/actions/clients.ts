@@ -14,7 +14,8 @@ type FormResult = { error?: string; ok?: string } | undefined;
 
 function readClient(form: FormData) {
   const name = String(form.get("name") ?? "").trim().slice(0, 80);
-  const phone = normalizePhone(String(form.get("phone") ?? ""));
+  // No painel a proprietária pode cadastrar quem só tem telefone fixo.
+  const phone = normalizePhone(String(form.get("phone") ?? ""), { exigirCelular: false });
   const email = String(form.get("email") ?? "").trim().slice(0, 120) || null;
   const birth = String(form.get("birthDate") ?? "");
   return { name, phone, email, birthDate: isDateStr(birth) ? localToUtc(birth, "12:00") : null };
