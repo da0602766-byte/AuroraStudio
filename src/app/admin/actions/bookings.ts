@@ -154,8 +154,18 @@ export async function confirmDeposit(_prev: FormResult, form: FormData): Promise
             ...(b.status === "CANCELADO" ? { cancelledAt: null, cancelReason: null } : {}),
           },
         });
+        // O histórico já diz quanto sobra, para que o desconto do sinal não
+        // dependa de alguém refazer a conta na hora de cobrar.
+        const restante = Math.max(0, b.priceCents - b.paidCents - b.depositCents);
         await tx.bookingEvent.create({
-          data: { bookingId: id, type: "SINAL_PAGO", message: `Sinal de ${brl(b.depositCents)} recebido via Pix.`, actor: admin.name },
+          data: {
+            bookingId: id,
+            type: "SINAL_PAGO",
+            message:
+              `Sinal de ${brl(b.depositCents)} recebido via Pix.` +
+              (restante > 0 ? ` Descontando o sinal, restam ${brl(restante)} para o atendimento.` : " Reserva quitada."),
+            actor: admin.name,
+          },
         });
       },
       { timeout: 15_000, maxWait: 10_000 }

@@ -14,6 +14,7 @@ import { siteUrl } from "@/lib/site-url";
 
 const METHOD: Record<string, string> = { PIX: "Pix", CARTAO: "Cartão", DINHEIRO: "Dinheiro", OUTRO: "Outro" };
 const KIND: Record<string, string> = { SINAL: "Sinal", RESTANTE: "Restante", INTEGRAL: "Integral" };
+const PAY_STATUS: Record<string, string> = { PENDENTE: "aguardando", RECUSADO: "recusado", CANCELADO: "cancelado", REEMBOLSADO: "reembolsado" };
 
 export default async function BookingDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -31,12 +32,23 @@ export default async function BookingDetail({ params }: { params: Promise<{ id: 
   const s = await getSettings();
   const base = siteUrl();
   const remaining = Math.max(0, b.priceCents - b.paidCents);
+  // Só conta como sinal recebido o pagamento que de fato entrou: o Pix
+  // gerado e não pago fica PENDENTE e não pode virar desconto.
+  const sinalRecebido = b.depositCents > 0 && b.payments.some((p) => p.kind === "SINAL" && p.status === "PAGO");
   const active = b.status === "AGUARDANDO_PAGAMENTO" || b.status === "CONFIRMADO";
   const when = fmt(b.startsAt, "EEEE, dd/MM 'às' HH:mm");
 
   const msgs = [
     { label: "Lembrete", text: `Olá, ${firstName(b.client.name)}! Passando para lembrar do seu horário de ${b.service.name} ${when}. Até lá!` },
-    { label: "Confirmação", text: `Olá, ${firstName(b.client.name)}! Sua reserva de ${b.service.name} ${when} está confirmada. Detalhes: ${base}/reserva/${b.token}` },
+    {
+      label: "Confirmação",
+      text:
+        `Olá, ${firstName(b.client.name)}! Sua reserva de ${b.service.name} ${when} está confirmada.` +
+        (sinalRecebido && remaining > 0
+          ? ` O sinal de ${brl(b.depositCents)} já está descontado: no dia fica ${brl(remaining)}.`
+          : "") +
+        ` Detalhes: ${base}/reserva/${b.token}`,
+    },
     ...(b.status === "AGUARDANDO_PAGAMENTO"
       ? [{ label: "Cobrar sinal", text: `Olá, ${firstName(b.client.name)}! Para confirmar seu horário de ${b.service.name} ${when}, falta o sinal de ${brl(b.depositCents)} via Pix${s.pixKey ? ` (chave: ${s.pixKey})` : ""}.` }]
       : []),
@@ -184,12 +196,37 @@ export default async function BookingDetail({ params }: { params: Promise<{ id: 
               <div><dt className="text-marrom-medio">Pago</dt><dd className="font-medium">{brl(b.paidCents)}</dd></div>
               <div><dt className="text-marrom-medio">Restante</dt><dd className="font-medium">{brl(remaining)}</dd></div>
             </dl>
+            {/*
+              * Assim que o sinal entra, o sistema avisa aqui que ele já pode
+              * ser descontado e deixa o campo abaixo com o valor certo. É uma
+              * sugestão: o valor continua editável, então ela pode cobrar o
+              * total se combinar diferente com a cliente.
+              */}
+            {sinalRecebido && (
+              <p className="mt-3 rounded-xl border border-ouro/50 bg-ouro-palido/40 p-3 text-sm leading-relaxed">
+                {remaining > 0 ? (
+                  <>
+                    Sinal de <strong>{brl(b.depositCents)}</strong> já recebido. Sugestão: descontar do total e cobrar{" "}
+                    <strong>{brl(remaining)}</strong> no atendimento — é o valor que já vem preenchido abaixo. Se preferir
+                    cobrar outro valor, é só trocar.
+                  </>
+                ) : (
+                  <>
+                    Sinal de <strong>{brl(b.depositCents)}</strong> recebido e reserva já quitada. Nada a cobrar no
+                    atendimento.
+                  </>
+                )}
+              </p>
+            )}
             {b.payments.length > 0 && (
               <ul className="mt-4 divide-y divide-linha text-sm">
                 {b.payments.map((p) => (
                   <li key={p.id} className="flex justify-between py-2">
-                    <span>{KIND[p.kind]} · {METHOD[p.method]} · {fmt(p.createdAt, "dd/MM/yy HH:mm")}</span>
-                    <span className="font-medium">{brl(p.amountCents)}</span>
+                    <span>
+                      {KIND[p.kind]} · {METHOD[p.method]} · {fmt(p.createdAt, "dd/MM/yy HH:mm")}
+                      {p.status !== "PAGO" && <span className="text-marrom-claro"> · {PAY_STATUS[p.status] ?? p.status.toLowerCase()}</span>}
+                    </span>
+                    <span className={p.status === "PAGO" ? "font-medium" : "text-marrom-claro"}>{brl(p.amountCents)}</span>
                   </li>
                 ))}
               </ul>
