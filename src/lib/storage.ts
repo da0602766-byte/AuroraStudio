@@ -13,7 +13,7 @@ function looksLikeImage(buf: Buffer, type: string) {
   return false;
 }
 
-function cloudinaryConfigurado() {
+export function cloudinaryConfigurado() {
   return Boolean(
     process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET
   );
@@ -93,4 +93,39 @@ export async function deleteImage(url: string | null | undefined) {
 export function fileFrom(form: FormData, key: string): File | null {
   const f = form.get(key);
   return f instanceof File && f.size > 0 ? f : null;
+}
+
+/**
+ * Quanto da cota do Cloudinary já foi usada neste mês.
+ *
+ * O plano gratuito é medido em "créditos": 1 crédito = 1 GB guardado, ou
+ * 1 GB enviado às visitantes, ou mil transformações de imagem. Por isso o
+ * número que importa é o de créditos — espaço e tráfego sozinhos não dizem
+ * quanto falta. O próprio Cloudinary informa o teto do plano, então aqui
+ * não há número chutado.
+ */
+export async function usoDoCloudinary(): Promise<{
+  plano: string | null;
+  creditosUsados: number | null;
+  creditosDoPlano: number | null;
+  bytesGuardados: number | null;
+  bytesEnviados: number | null;
+  fotos: number | null;
+} | null> {
+  if (!cloudinaryConfigurado()) return null;
+  const cld = await cloudinary();
+  const u = (await cld.api.usage()) as Record<string, unknown>;
+  const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const campo = (chave: string, sub: string): number | null => {
+    const bloco = u[chave];
+    return bloco && typeof bloco === "object" ? num((bloco as Record<string, unknown>)[sub]) : null;
+  };
+  return {
+    plano: typeof u.plan === "string" ? u.plan : null,
+    creditosUsados: campo("credits", "usage"),
+    creditosDoPlano: campo("credits", "limit"),
+    bytesGuardados: campo("storage", "usage"),
+    bytesEnviados: campo("bandwidth", "usage"),
+    fotos: num(u.resources),
+  };
 }

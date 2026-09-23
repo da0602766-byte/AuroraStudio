@@ -86,3 +86,27 @@ ${corpo}
 <p style="max-width:560px;margin:16px auto 0;font-size:12px;color:#8A7378">Enviado automaticamente pelo site do estúdio.</p>
 </body></html>`;
 }
+
+/**
+ * Situação da conta no Brevo.
+ *
+ * Serve para o painel mostrar se os avisos ainda têm cota. O Brevo devolve
+ * os planos em uma lista e nem toda conta traz o mesmo formato, então aqui
+ * só se aproveita o que vier reconhecível: sem número legível, devolve
+ * `creditos: null` e quem chama mostra a referência do plano em vez de
+ * inventar uma medida.
+ */
+export async function contaBrevo(sinal?: AbortSignal): Promise<{ creditos: number | null; plano: string | null } | null> {
+  if (!process.env.BREVO_API_KEY) return null;
+  const r = await fetch("https://api.brevo.com/v3/account", {
+    headers: { "api-key": process.env.BREVO_API_KEY, accept: "application/json" },
+    signal: sinal,
+    cache: "no-store",
+  });
+  if (!r.ok) throw new Error(`Brevo respondeu ${r.status}`);
+  const j = (await r.json()) as { plan?: { type?: string; credits?: unknown; creditsType?: string }[] };
+  const planos = Array.isArray(j.plan) ? j.plan : [];
+  const envio = planos.find((p) => p.creditsType === "sendLimit") ?? planos[0];
+  const creditos = typeof envio?.credits === "number" && Number.isFinite(envio.credits) ? envio.credits : null;
+  return { creditos, plano: envio?.type ?? null };
+}

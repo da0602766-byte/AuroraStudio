@@ -14,6 +14,7 @@ const LINKS = [
   { href: "/admin/avaliacoes", label: "Avaliações" },
   { href: "/admin/bloqueios", label: "Folgas e bloqueios" },
   { href: "/admin/configuracoes", label: "Configurações" },
+  { href: "/admin/sistema", label: "Sistema" },
 ];
 
 export function AdminNav({ pendingReviews }: { pendingReviews: number }) {
