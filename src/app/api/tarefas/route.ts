@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { prisma } from "@/lib/db";
 import { expireStaleHolds } from "@/lib/availability";
-import { enviarLembretesDeAmanha, pedirAvaliacoesDeOntem } from "@/lib/notificacoes";
+import { avisarSinaisAtrasados, enviarLembretesDeAmanha, pedirAvaliacoesDeOntem } from "@/lib/notificacoes";
 import { alertarErro } from "@/lib/alerta";
 import { fmt } from "@/lib/time";
 
@@ -44,6 +44,13 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     await alertarErro("tarefas/expireStaleHolds", e);
     resultado.sinaisVencidos = "falhou";
+  }
+
+  try {
+    resultado.sinaisAtrasados = await avisarSinaisAtrasados();
+  } catch (e) {
+    await alertarErro("tarefas/avisarSinaisAtrasados", e);
+    resultado.sinaisAtrasados = "falhou";
   }
 
   // `fmt` devolve a hora no fuso do estúdio, não no do servidor.

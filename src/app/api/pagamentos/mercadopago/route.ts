@@ -1,9 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { assertSlotFree, BookingError, lockAgenda } from "@/lib/booking";
-import { brl } from "@/lib/format";
+import { brl, firstName } from "@/lib/format";
 import { assinaturaConfere, consultarPagamento, mercadoPagoConfigurado } from "@/lib/payments/mercadopago";
 import { alertarErro } from "@/lib/alerta";
+import { avisarPorPush } from "@/lib/push";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +71,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  let confirmou = false;
   try {
     await prisma.$transaction(
       async (tx) => {
@@ -122,9 +124,22 @@ export async function POST(req: NextRequest) {
             actor: "sistema",
           },
         });
+        confirmou = true;
       },
       { timeout: 15_000, maxWait: 10_000 }
     );
+
+    if (confirmou) {
+      const completa = await prisma.booking.findUnique({ where: { id: b.id }, include: { client: true, service: true } });
+      if (completa) {
+        void avisarPorPush({
+          titulo: "Pagamento confirmado",
+          texto: `${firstName(completa.client.name)} pagou ${brl(pagamento.valorCents)} — ${completa.service.name}`,
+          href: `/admin/reservas/${b.id}`,
+          tag: `pagamento:${idPagamento}`,
+        });
+      }
+    }
   } catch (e) {
     if (e instanceof BookingError) {
       // Pagou, mas o horário não está mais livre. A reserva fica como está e

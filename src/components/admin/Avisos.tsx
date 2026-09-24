@@ -12,7 +12,10 @@ import { ehPendencia, juntarAvisos, type Aviso, type Novidades, type TipoAviso }
  * pergunta ao servidor de tempos em tempos se aconteceu algo e, quando
  * acontece, avisa de três jeitos ao mesmo tempo: um número vermelho no
  * sino, um som curto e uma notificação do sistema — que é a única das três
- * que aparece quando ela está em outra aba ou em outro aplicativo.
+ * que aparece quando ela está em outra aba ou em outro aplicativo. Com a
+ * permissão concedida, o navegador também fica inscrito em Web Push (ver
+ * `ativarPushSeGranted`), que é o que alcança quando ela fecha tudo: aí quem
+ * acorda a notificação é o servidor, não mais esta aba.
  *
  * Por que perguntar de tempos em tempos em vez de manter uma conexão
  * aberta: o site roda em funções da Netlify, que morrem em segundos. Uma
@@ -92,6 +95,50 @@ function lerSom(): boolean {
 
 function lerPermissao(): NotificationPermission | "indisponivel" {
   return typeof Notification === "undefined" ? "indisponivel" : Notification.permission;
+}
+
+/*
+ * Web Push: a mesma permissão do sino ("Notification"), só que entregue por
+ * um service worker, que o navegador consegue acordar mesmo com o site
+ * fechado. Uma vez concedida a permissão, inscrever é automático — sem
+ * gesto extra da proprietária, sem botão a mais.
+ *
+ * Sem `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (ambiente sem as chaves configuradas)
+ * a função não faz nada: o sino continua funcionando normalmente, só sem
+ * esse alcance extra.
+ */
+const CHAVE_PUBLICA_VAPID = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+function chavePublicaParaBytes(base64: string): Uint8Array {
+  const preenchimento = "=".repeat((4 - (base64.length % 4)) % 4);
+  const base64Seguro = (base64 + preenchimento).replace(/-/g, "+").replace(/_/g, "/");
+  const bruto = atob(base64Seguro);
+  const bytes = new Uint8Array(bruto.length);
+  for (let i = 0; i < bruto.length; i++) bytes[i] = bruto.charCodeAt(i);
+  return bytes;
+}
+
+async function ativarPushSeGranted() {
+  if (!CHAVE_PUBLICA_VAPID) return;
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  try {
+    const registro = await navigator.serviceWorker.register("/sw-push.js");
+    let inscricao = await registro.pushManager.getSubscription();
+    if (!inscricao) {
+      inscricao = await registro.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: chavePublicaParaBytes(CHAVE_PUBLICA_VAPID) as BufferSource,
+      });
+    }
+    await fetch("/api/admin/push", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(inscricao.toJSON()),
+    });
+  } catch {
+    /* navegador recusou ou não suporta; o sino segue funcionando com a aba aberta */
+  }
 }
 
 function horaDe(iso: string): string {
@@ -223,6 +270,7 @@ export function Avisos() {
     }
 
     void ciclo(true);
+    void ativarPushSeGranted();
 
     function aoVoltarParaAba() {
       if (document.hidden || !vivo) return;
@@ -261,6 +309,7 @@ export function Avisos() {
     try {
       await Notification.requestPermission();
       avisarMudancaDePreferencia();
+      void ativarPushSeGranted();
     } catch {
       /* navegador recusou o pedido */
     }
@@ -356,7 +405,7 @@ export function Avisos() {
           <div className="mt-3 border-t border-linha pt-3 text-sm">
             {permissao === "default" && (
               <button type="button" onClick={ligarAvisos} className="btn-contorno btn-pequeno w-full">
-                Avisar na tela mesmo em outra aba
+                Avisar na tela mesmo fechado
               </button>
             )}
             {permissao === "denied" && (

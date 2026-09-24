@@ -21,15 +21,31 @@ datasource db {
 // ─── Acesso administrativo ─────────────────────────────────────────
 
 model AdminUser {
-  id             String        @id @default(cuid())
-  email          String        @unique
+  id             String              @id @default(cuid())
+  email          String              @unique
   name           String
   passwordHash   String
-  sessionVersion Int           @default(1)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  sessionVersion Int                 @default(1)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
   auditLogs      AuditLog[]
   professional   Professional?
+  pushSubscriptions PushSubscription[]
+}
+
+// Inscrição do navegador para receber notificação mesmo fechado (Web Push).
+// Uma linha por navegador/aparelho — a mesma proprietária pode ter o painel
+// aberto no computador e no celular ao mesmo tempo.
+model PushSubscription {
+  id          String    @id @default(cuid())
+  adminUserId String
+  adminUser   AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  endpoint    String    @unique
+  p256dh      String
+  auth        String
+  createdAt   DateTime  @default(now())
+
+  @@index([adminUserId])
 }
 
 // ─── Profissionais (preparado para crescer) ────────────────────────
@@ -235,6 +251,9 @@ model Booking {
 
   holdExpiresAt   DateTime?
   proofSentAt     DateTime?
+  /// Quando o aviso de "sinal atrasado" foi enviado por push. Impede
+  /// repetir a notificação a cada rodada da tarefa agendada.
+  overduePushSentAt DateTime?
   /// Quando o lembrete de véspera foi enviado. Impede repetir o aviso se a
   /// tarefa agendada rodar mais de uma vez no mesmo dia.
   reminderSentAt  DateTime?

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { clientIp, sharedRateLimit } from "@/lib/rate-limit";
+import { avisarPorPush } from "@/lib/push";
+import { brl, firstName } from "@/lib/format";
 
 /**
  * A cliente avisa que já enviou o Pix. O horário deixa de expirar sozinho
@@ -11,7 +13,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ token:
   if (!(await sharedRateLimit(`comprov:${await clientIp()}`, 10, 10 * 60_000))) {
     return NextResponse.json({ error: "Muitas tentativas." }, { status: 429 });
   }
-  const b = await prisma.booking.findUnique({ where: { token } });
+  const b = await prisma.booking.findUnique({ where: { token }, include: { client: true } });
   if (!b || b.status !== "AGUARDANDO_PAGAMENTO") return NextResponse.json({ ok: false }, { status: 404 });
   if (b.holdExpiresAt && b.holdExpiresAt < new Date()) {
     return NextResponse.json({ error: "O prazo desta reserva terminou." }, { status: 409 });
@@ -20,6 +22,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ token:
     await prisma.booking.update({ where: { id: b.id }, data: { proofSentAt: new Date(), holdExpiresAt: null } });
     await prisma.bookingEvent.create({
       data: { bookingId: b.id, type: "COMPROVANTE", message: "Cliente informou que enviou o Pix do sinal.", actor: "cliente" },
+    });
+    void avisarPorPush({
+      titulo: "Cliente avisou que pagou o sinal",
+      texto: `${firstName(b.client.name)} — confira e confirme os ${brl(b.depositCents)}`,
+      href: `/admin/reservas/${b.id}`,
+      tag: `comprovante:${b.id}`,
     });
   }
   return NextResponse.json({ ok: true });

@@ -7,6 +7,7 @@ import { fmt, localDateOf, longDate, localTimeOf, timeLabel } from "./time";
 import { waLink } from "./whatsapp";
 import { siteUrl } from "./site-url";
 import { alertarErro } from "./alerta";
+import { avisarPorPush } from "./push";
 
 type ReservaCompleta = Booking & { client: Client; service: Service };
 
@@ -21,13 +22,21 @@ const quando = (b: Booking) => `${longDate(b.startsAt)} às ${timeLabel(localTim
  */
 export async function avisarNovaReserva(bookingId: string) {
   try {
-    const para = emailDaProprietaria();
-    if (!para) return;
     const b = await prisma.booking.findUnique({
       where: { id: bookingId },
       include: { client: true, service: true },
     });
     if (!b) return;
+
+    void avisarPorPush({
+      titulo: "Reserva nova pelo site",
+      texto: `${firstName(b.client.name)} — ${b.service.name}, ${quando(b)}`,
+      href: `/admin/reservas/${b.id}`,
+      tag: `reserva:${b.id}`,
+    });
+
+    const para = emailDaProprietaria();
+    if (!para) return;
 
     const linhas: string[] = [
       `<tr><td style="padding:4px 0;color:#6B5459">Cliente</td><td style="padding:4px 0;text-align:right"><strong>${esc(b.client.name)}</strong></td></tr>`,
@@ -201,6 +210,53 @@ export async function pedirAvaliacoesDeOntem(): Promise<{ pedidos: number }> {
     await prisma.booking.updateMany({ where: { id: { in: enviadas } }, data: { reviewAskedAt: agora } });
   }
   return { pedidos: enviadas.length };
+}
+
+/** Reserva recém-feita não é cobrança atrasada. Dá um tempo à cliente. */
+const ESPERA_DO_SINAL_MIN = 30;
+
+/**
+ * Avisa por push as reservas cujo sinal está atrasado e ainda não geraram
+ * aviso. Roda pela tarefa agendada de hora em hora — o sino do painel já
+ * mostra isso com o site aberto, mas essa chamada é o que alcança quem
+ * fechou tudo.
+ *
+ * `overduePushSentAt` evita repetir o aviso a cada rodada da tarefa para a
+ * mesma reserva: uma vez é o bastante, o painel continua mostrando a
+ * pendência até ela ser resolvida.
+ */
+export async function avisarSinaisAtrasados(): Promise<{ avisos: number }> {
+  const agora = new Date();
+  const jaPodeCobrar = new Date(agora.getTime() - ESPERA_DO_SINAL_MIN * 60_000);
+
+  const reservas = await prisma.booking.findMany({
+    where: {
+      status: "AGUARDANDO_PAGAMENTO",
+      proofSentAt: null,
+      depositCents: { gt: 0 },
+      createdAt: { lt: jaPodeCobrar },
+      overduePushSentAt: null,
+    },
+    include: { client: true },
+    take: 15,
+  });
+  if (!reservas.length) return { avisos: 0 };
+
+  for (const b of reservas) {
+    void avisarPorPush({
+      titulo: "Falta cobrar o sinal",
+      texto: `${firstName(b.client.name)} reservou e o sinal de ${brl(b.depositCents)} não chegou`,
+      href: `/admin/reservas/${b.id}`,
+      tag: `sinal:${b.id}`,
+    });
+  }
+
+  await prisma.booking.updateMany({
+    where: { id: { in: reservas.map((b) => b.id) } },
+    data: { overduePushSentAt: agora },
+  });
+
+  return { avisos: reservas.length };
 }
 
 /** Data local de amanhã, usada nos testes e no resumo. */
