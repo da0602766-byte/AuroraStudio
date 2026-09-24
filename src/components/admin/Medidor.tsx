@@ -16,7 +16,7 @@ const ESTADO: Record<Nivel, { cor: string; trilho: string; palavra: string }> = 
   limite: { cor: "#C0392B", trilho: "rgba(208,59,59,0.14)", palavra: "No limite" },
   "sem-leitura": { cor: "#6B5249", trilho: "rgba(107,82,73,0.12)", palavra: "Sem leitura" },
   desligado: { cor: "#9C8379", trilho: "rgba(156,131,121,0.14)", palavra: "Desligado" },
-  informativo: { cor: "#6B5249", trilho: "rgba(107,82,73,0.10)", palavra: "Só no painel" },
+  informativo: { cor: "#6B5249", trilho: "rgba(107,82,73,0.10)", palavra: "Informativo" },
 };
 
 function Icone({ nivel }: { nivel: Nivel }) {
@@ -53,8 +53,8 @@ function Icone({ nivel }: { nivel: Nivel }) {
   if (nivel === "informativo")
     return (
       <svg {...comum}>
-        <path d="M13.4 8.6V12a1.4 1.4 0 0 1-1.4 1.4H4A1.4 1.4 0 0 1 2.6 12V4A1.4 1.4 0 0 1 4 2.6h3.4" {...traco} />
-        <path d="M10 2.6h3.4V6M13.4 2.6 7.6 8.4" {...traco} />
+        <circle cx="8" cy="8" r="6.4" {...traco} />
+        <path d="M8 7.3v4M8 4.8h.01" {...traco} />
       </svg>
     );
   return (

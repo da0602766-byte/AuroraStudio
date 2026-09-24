@@ -86,22 +86,13 @@ export default async function Sistema() {
             )}
 
             <p className="mt-4 text-sm leading-relaxed text-marrom-medio">{s.recado}</p>
-
-            <a
-              href={s.painel.href}
-              {...(s.painel.href.startsWith("http") ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-              className="mt-4 self-start text-sm text-bordo underline underline-offset-4"
-            >
-              {s.painel.rotulo}
-            </a>
           </section>
         ))}
       </div>
 
       <p className="text-xs leading-relaxed text-marrom-claro">
         Os números são lidos na hora que você abre esta página. Os tetos vêm do próprio fornecedor, quando ele informa;
-        onde não dá para ler de fora, o valor do plano aparece escrito, sem barra, com o link do painel onde o consumo
-        de verdade é contado.
+        onde não dá para medir, o valor do plano aparece escrito, sem barra.
       </p>
     </div>
   );

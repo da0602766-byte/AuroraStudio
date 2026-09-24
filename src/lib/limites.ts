@@ -16,7 +16,9 @@ import { contaBrevo, emailConfigurado } from "./mail";
  * medir de verdade. O tamanho do banco sai do próprio PostgreSQL, a cota do
  * Cloudinary sai da API dele. O que não dá para ler daqui — os contadores da
  * Netlify, que exigem um token de conta — aparece como referência escrita,
- * com link para o painel, e nunca como uma barra inventada.
+ * nunca como uma barra inventada. E a página não manda a proprietária para
+ * o site de fornecedor nenhum: ela precisa saber dos limites, não mexer em
+ * contas de serviço que não são dela.
  */
 
 const MB = 1024 * 1024;
@@ -55,7 +57,6 @@ export type Servico = {
   /** Limites que não dá para medir daqui, mostrados como texto. */
   referencia: { rotulo: string; valor: string }[];
   recado: string;
-  painel: { rotulo: string; href: string };
 };
 
 // ─── Contas ───────────────────────────────────────────────────────────
@@ -143,7 +144,6 @@ async function medirBanco(): Promise<Servico> {
     nome: "Banco de dados",
     fornecedor: "Neon",
     paraQue: "Guarda as reservas, as clientes, os serviços e todo o histórico.",
-    painel: { rotulo: "Abrir o painel do Neon", href: "https://console.neon.tech" },
   };
 
   try {
@@ -163,8 +163,8 @@ async function medirBanco(): Promise<Servico> {
         limite: limiteEmMb("LIMITE_BANCO_MB", 512),
         unidade: "bytes",
         nota: process.env.LIMITE_BANCO_MB
-          ? "Teto que você cadastrou em LIMITE_BANCO_MB."
-          : "Teto suposto do plano gratuito. O número exato está no painel do Neon — se lá for outro, cadastre LIMITE_BANCO_MB.",
+          ? "Teto cadastrado na configuração do site."
+          : "Teto estimado do plano gratuito, por baixo de propósito: melhor avisar cedo demais do que tarde.",
       },
       { rotulo: "Reservas guardadas", usado: reservas, limite: null, unidade: "itens" },
       { rotulo: "Clientes cadastradas", usado: clientes, limite: null, unidade: "itens" },
@@ -197,7 +197,6 @@ async function medirFotos(): Promise<Servico> {
     nome: "Fotos",
     fornecedor: "Cloudinary",
     paraQue: "Guarda e entrega as fotos dos serviços, do portfólio e da galeria.",
-    painel: { rotulo: "Abrir o painel do Cloudinary", href: "https://console.cloudinary.com/console" },
   };
 
   if (!cloudinaryConfigurado()) {
@@ -222,7 +221,7 @@ async function medirFotos(): Promise<Servico> {
         usado: u.creditosUsados,
         limite: u.creditosDoPlano,
         unidade: "creditos",
-        nota: "Créditos: cada um vale 1 GB guardado, 1 GB entregue às visitantes ou mil ajustes de imagem. O teto vem do próprio Cloudinary.",
+        nota: "Créditos: cada um vale 1 GB guardado, 1 GB entregue às visitantes ou mil ajustes de imagem.",
       });
     }
     if (u.bytesGuardados !== null) {
@@ -249,7 +248,7 @@ async function medirFotos(): Promise<Servico> {
       medidas: [],
       referencia: [],
       nivel: "sem-leitura",
-      recado: "Não deu para consultar o Cloudinary agora. Confira direto no painel dele.",
+      recado: "Não deu para consultar a cota das fotos agora. Se as fotos do site continuam aparecendo, foi falha passageira na consulta.",
     };
   }
 }
@@ -262,7 +261,6 @@ async function medirEmails(): Promise<Servico> {
     nome: "Avisos por e-mail",
     fornecedor: "Brevo",
     paraQue: "Manda o aviso de reserva nova, o lembrete da véspera, o pedido de avaliação e os alertas de erro.",
-    painel: { rotulo: "Abrir o painel do Brevo", href: "https://app.brevo.com" },
   };
 
   if (!emailConfigurado()) {
@@ -290,7 +288,7 @@ async function medirEmails(): Promise<Servico> {
       ],
       nivel: "tranquilo",
       recado:
-        "Conectado e respondendo. Um salão manda alguns e-mails por dia, bem longe do teto — o contador do dia fica no painel do Brevo.",
+        "Conectado e respondendo. Um estúdio manda alguns e-mails por dia, bem longe do teto de 300.",
     };
   } catch {
     return {
@@ -299,7 +297,7 @@ async function medirEmails(): Promise<Servico> {
       referencia,
       nivel: "sem-leitura",
       recado:
-        "O Brevo não respondeu à consulta agora. Se os avisos pararam de chegar, confira no painel dele se a chave ainda vale.",
+        "O serviço de e-mail não respondeu à consulta agora. Se os avisos pararam de chegar, o acesso dele pode ter vencido.",
     };
   }
 }
@@ -320,7 +318,6 @@ async function medirErros(): Promise<Servico> {
     nome: "Erros do site",
     fornecedor: "últimas 24 horas",
     paraQue: "Conta quantas falhas o site avisou por e-mail desde ontem.",
-    painel: { rotulo: "Ver as reservas", href: "/admin/reservas" },
   };
 
   try {
@@ -362,8 +359,8 @@ async function medirErros(): Promise<Servico> {
 /**
  * A Netlify não deixa o próprio site ler os contadores dela sem um token de
  * conta, que daria acesso a bem mais coisa do que uma página de leitura
- * precisa. Então aqui vai o que o plano oferece, por escrito, e o link para
- * onde os números de verdade moram. Uma barra aqui seria invenção.
+ * precisa. Então aqui vai o que o plano oferece, por escrito. Uma barra
+ * seria invenção.
  */
 function hospedagem(): Servico {
   return {
@@ -380,8 +377,7 @@ function hospedagem(): Servico {
       { rotulo: "Tempo de publicação", valor: "300 minutos por mês" },
     ],
     recado:
-      "A Netlify não deixa o site ler os próprios contadores sem um token de conta, então estes são os valores do plano — o quanto já foi gasto aparece no painel dela, em Usage.",
-    painel: { rotulo: "Ver o consumo na Netlify", href: "https://app.netlify.com" },
+      "Estes são os valores que o plano oferece. O site não consegue medir sozinho o quanto já foi gasto, por isso não há barra aqui — na prática, um estúdio fica muito longe destes números.",
   };
 }
 
