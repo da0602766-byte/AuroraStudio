@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getCachedSettings } from "@/lib/settings";
 import { AdminNav } from "@/components/admin/AdminNav";
+import { Avisos } from "@/components/admin/Avisos";
 import { logout } from "../actions/auth";
 import { unstable_cache } from "next/cache";
 import { ADMIN_NAV_TAG } from "@/lib/cache";
@@ -36,6 +37,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
             <div className="flex items-center gap-2 text-sm">
               <Link href="/admin/busca" className="rounded-full px-3 py-2 text-white/80 hover:text-white sm:hidden">Buscar</Link>
               <Link href="/" target="_blank" className="hidden rounded-full px-3 py-2 text-white/80 hover:text-white md:inline">Ver site</Link>
+              <Avisos />
               <form action={logout}>
                 <button type="submit" className="rounded-full px-3 py-2 text-white/80 hover:text-white" title={admin.email}>Sair</button>
               </form>
