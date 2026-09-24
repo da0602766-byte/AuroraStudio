@@ -6,8 +6,10 @@ import { cacheSite } from "@/lib/cache";
 import { getCachedSettings } from "@/lib/settings";
 import { brl, durationLabel, effectivePrice, priceLabel } from "@/lib/format";
 import { waLink } from "@/lib/whatsapp";
+import { mediasPorServico } from "@/lib/reviews";
 import { Photo } from "@/components/site/Photo";
 import { BrowArc } from "@/components/site/BrowArc";
+import { Stars } from "@/components/site/Stars";
 
 const load = cacheSite(async (slug: string) => {
   const service = await prisma.service.findFirst({
@@ -17,15 +19,15 @@ const load = cacheSite(async (slug: string) => {
       portfolio: { orderBy: [{ featured: "desc" }, { order: "asc" }, { createdAt: "desc" }], take: 12 },
     },
   });
-  if (!service || service.portfolio.length > 0 || !service.categoryId) {
-    return { service, fallbackPhotos: [] };
-  }
-  const fallbackPhotos = await prisma.portfolioItem.findMany({
-    where: { categoryId: service.categoryId },
-    take: 8,
-    orderBy: { createdAt: "desc" },
-  });
-  return { service, fallbackPhotos };
+  if (!service) return { service, fallbackPhotos: [], media: null };
+
+  const [medias, fallbackPhotos] = await Promise.all([
+    mediasPorServico(prisma),
+    service.portfolio.length === 0 && service.categoryId
+      ? prisma.portfolioItem.findMany({ where: { categoryId: service.categoryId }, take: 8, orderBy: { createdAt: "desc" } })
+      : Promise.resolve([]),
+  ]);
+  return { service, fallbackPhotos, media: medias[service.id] ?? null };
 }, ["pagina-de-servico"]);
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
@@ -36,7 +38,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 export default async function ServicePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const { service: sv, fallbackPhotos } = await load(slug);
+  const { service: sv, fallbackPhotos, media } = await load(slug);
   if (!sv) notFound();
   const s = await getCachedSettings();
   const price = effectivePrice(sv);
@@ -59,6 +61,14 @@ export default async function ServicePage({ params }: { params: Promise<{ slug: 
           <div className="md:pt-8">
             <h1 className="text-4xl sm:text-5xl">{sv.name}</h1>
             <BrowArc className="mt-2 w-48 text-ouro" />
+            {media && (
+              <p className="mt-3 flex items-center gap-2 text-[15px] text-marrom-medio">
+                <Stars value={Math.round(media.media)} />
+                <span>
+                  {media.media.toFixed(1)} de 5 · {media.total} avaliaç{media.total === 1 ? "ão" : "ões"}
+                </span>
+              </p>
+            )}
             {sv.description && <p className="mt-5 whitespace-pre-line text-[17px] leading-relaxed text-marrom-medio">{sv.description}</p>}
 
             <dl className="mt-8 grid grid-cols-2 gap-6 border-y border-linha py-6">

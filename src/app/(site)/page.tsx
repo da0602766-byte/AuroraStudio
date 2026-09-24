@@ -6,6 +6,7 @@ import { scheduleLines } from "@/lib/schedule";
 import { brl, durationLabel, effectivePrice, priceLabel } from "@/lib/format";
 import { waLink } from "@/lib/whatsapp";
 import { fmt } from "@/lib/time";
+import { mediasPorServico } from "@/lib/reviews";
 import { BrowArc } from "@/components/site/BrowArc";
 import { Photo } from "@/components/site/Photo";
 import { Stars } from "@/components/site/Stars";
@@ -17,7 +18,7 @@ import { Stars } from "@/components/site/Stars";
 const loadHome = cacheSite(async () => {
   const [s, pro] = await Promise.all([getSettings(), getDefaultProfessional()]);
 
-  const [categories, featured, reviews, faqs, slots, uncategorized] = await Promise.all([
+  const [categories, featured, reviews, faqs, slots, uncategorized, medias] = await Promise.all([
     prisma.category.findMany({
       orderBy: { order: "asc" },
       include: { services: { where: { active: true }, orderBy: { order: "asc" } } },
@@ -34,13 +35,14 @@ const loadHome = cacheSite(async () => {
     prisma.faq.findMany({ orderBy: { order: "asc" } }),
     prisma.workingSlot.findMany({ where: { professionalId: pro.id, active: true } }),
     prisma.service.findMany({ where: { active: true, categoryId: null }, orderBy: { order: "asc" } }),
+    mediasPorServico(prisma),
   ]);
 
-  return { s, categories, featured, reviews, faqs, slots, uncategorized };
+  return { s, categories, featured, reviews, faqs, slots, uncategorized, medias };
 }, ["pagina-inicial"]);
 
 export default async function HomePage() {
-  const { s, categories, featured, reviews, faqs, slots, uncategorized } = await loadHome();
+  const { s, categories, featured, reviews, faqs, slots, uncategorized, medias } = await loadHome();
 
   const groups = [
     ...categories.filter((c) => c.services.length),
@@ -98,6 +100,7 @@ export default async function HomePage() {
                 <ul>
                   {g.services.map((sv) => {
                     const price = effectivePrice(sv);
+                    const media = medias[sv.id];
                     return (
                       <li key={sv.id} className="border-b border-linha">
                         <Link href={`/servicos/${sv.slug}`} className="group flex items-start justify-between gap-4 py-5">
@@ -105,6 +108,12 @@ export default async function HomePage() {
                             <p className="text-lg font-medium group-hover:text-bordo">{sv.name}</p>
                             {sv.description && <p className="mt-1 text-[15px] leading-relaxed text-marrom-medio">{sv.description}</p>}
                             <p className="mt-2 text-sm text-marrom-claro">{durationLabel(sv.durationMinutes)}</p>
+                            {media && (
+                              <p className="mt-1.5 flex items-center gap-1.5 text-sm text-marrom-claro">
+                                <Stars value={Math.round(media.media)} />
+                                {media.media.toFixed(1)} ({media.total})
+                              </p>
+                            )}
                           </div>
                           <div className="shrink-0 text-right">
                             {price !== sv.priceCents && <p className="text-sm text-marrom-claro line-through">{brl(sv.priceCents)}</p>}
