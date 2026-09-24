@@ -1,5 +1,9 @@
 import { pior, situacaoDosServicos } from "@/lib/limites";
 import { Medidor, Selo } from "@/components/admin/Medidor";
+import { prisma } from "@/lib/db";
+import { ActionForm } from "@/components/admin/ActionForm";
+import { SubmitButton } from "@/components/admin/Buttons";
+import { resetarDadosDeTeste } from "@/app/admin/actions/sistema";
 
 export const metadata = { title: "Sistema" };
 
@@ -31,9 +35,15 @@ const RESUMO: Record<string, { titulo: string; texto: string }> = {
 };
 
 export default async function Sistema() {
-  const servicos = await situacaoDosServicos();
+  const [servicos, clientes, reservas, avaliacoes] = await Promise.all([
+    situacaoDosServicos(),
+    prisma.client.count(),
+    prisma.booking.count(),
+    prisma.review.count(),
+  ]);
   const geral = pior(servicos.map((s) => s.nivel));
   const resumo = RESUMO[geral];
+  const semDados = clientes === 0 && reservas === 0 && avaliacoes === 0;
 
   return (
     <div className="space-y-6">
@@ -89,6 +99,42 @@ export default async function Sistema() {
           </section>
         ))}
       </div>
+
+      <section className="painel-bloco border-2 border-bordo/30">
+        <h2 className="text-xl text-bordo">Zona de risco</h2>
+        <p className="mt-1 text-[15px] leading-relaxed text-marrom-medio">
+          Apaga clientes, reservas, pagamentos e avaliações de uma vez — para tirar os dados de teste antes de começar
+          a usar o site de verdade. Serviços, categorias, horários de atendimento, bloqueios, fotos do portfólio e as
+          configurações do estúdio não são afetados.
+        </p>
+
+        {semDados ? (
+          <p className="mt-3 text-sm text-marrom-claro">Não há clientes, reservas nem avaliações cadastradas agora.</p>
+        ) : (
+          <>
+            <p className="mt-3 text-sm">
+              Hoje há <strong>{clientes}</strong> cliente{clientes === 1 ? "" : "s"}, <strong>{reservas}</strong>{" "}
+              reserva{reservas === 1 ? "" : "s"} e <strong>{avaliacoes}</strong> avaliaç{avaliacoes === 1 ? "ão" : "ões"}{" "}
+              cadastrada{reservas === 1 ? "" : "s"}.
+            </p>
+            <ActionForm action={resetarDadosDeTeste} className="mt-4 max-w-sm space-y-3">
+              <div>
+                <label htmlFor="confirmacao" className="rotulo">
+                  Digite APAGAR para confirmar
+                </label>
+                <input id="confirmacao" name="confirmacao" className="campo" autoComplete="off" required />
+              </div>
+              <SubmitButton
+                className="btn-contorno btn-pequeno border-bordo text-bordo"
+                pendingText="Apagando…"
+                confirm={`Apagar definitivamente ${clientes} clientes, ${reservas} reservas e ${avaliacoes} avaliações? Não é possível desfazer.`}
+              >
+                Apagar dados de teste
+              </SubmitButton>
+            </ActionForm>
+          </>
+        )}
+      </section>
 
       <p className="text-xs leading-relaxed text-marrom-claro">
         Os números são lidos na hora que você abre esta página. Os tetos vêm do próprio fornecedor, quando ele informa;
