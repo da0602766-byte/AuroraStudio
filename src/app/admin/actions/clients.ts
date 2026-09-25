@@ -1,18 +1,21 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 import { normalizePhone } from "@/lib/format";
+import { SITE_TAG } from "@/lib/cache";
 import { isDateStr, localToUtc } from "@/lib/time";
 
 type FormResult = { error?: string; ok?: string } | undefined;
 
 function readClient(form: FormData) {
   const name = String(form.get("name") ?? "").trim().slice(0, 80);
-  const phone = normalizePhone(String(form.get("phone") ?? ""));
+  // No painel a proprietária pode cadastrar quem só tem telefone fixo.
+  const phone = normalizePhone(String(form.get("phone") ?? ""), { exigirCelular: false });
   const email = String(form.get("email") ?? "").trim().slice(0, 120) || null;
   const birth = String(form.get("birthDate") ?? "");
   return { name, phone, email, birthDate: isDateStr(birth) ? localToUtc(birth, "12:00") : null };
@@ -23,10 +26,19 @@ export async function createClient(_prev: FormResult, form: FormData): Promise<F
   const data = readClient(form);
   if (data.name.length < 2) return { error: "Informe o nome." };
   if (!data.phone) return { error: "Informe o WhatsApp com DDD." };
-  const exists = await prisma.client.findUnique({ where: { phone: data.phone } });
-  if (exists) return { error: "Já existe uma cliente com este WhatsApp." };
-  const c = await prisma.client.create({ data: { ...data, phone: data.phone } });
   const note = String(form.get("note") ?? "").trim();
+
+  let c;
+  try {
+    c = await prisma.client.create({ data: { ...data, phone: data.phone } });
+  } catch (e) {
+    // O banco é a fonte da verdade: conferir antes e criar depois deixaria
+    // passar dois cadastros simultâneos com o mesmo número.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return { error: "Já existe uma cliente com este WhatsApp." };
+    }
+    throw e;
+  }
   if (note) await prisma.clientNote.create({ data: { clientId: c.id, text: note.slice(0, 2000) } });
   await audit(admin.id, "CLIENTE_CRIADA", "cliente", c.id);
   redirect(`/admin/clientes/${c.id}`);
@@ -38,9 +50,15 @@ export async function updateClient(_prev: FormResult, form: FormData): Promise<F
   const data = readClient(form);
   if (data.name.length < 2) return { error: "Informe o nome." };
   if (!data.phone) return { error: "Informe o WhatsApp com DDD." };
-  const other = await prisma.client.findUnique({ where: { phone: data.phone } });
-  if (other && other.id !== id) return { error: "Este WhatsApp já pertence a outra cliente." };
-  await prisma.client.update({ where: { id }, data: { ...data, phone: data.phone } });
+  try {
+    await prisma.client.update({ where: { id }, data: { ...data, phone: data.phone } });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
+      if (e.code === "P2002") return { error: "Este WhatsApp já pertence a outra cliente." };
+      if (e.code === "P2025") return { error: "Cliente não encontrada." };
+    }
+    throw e;
+  }
   await audit(admin.id, "CLIENTE_EDITADA", "cliente", id);
   revalidatePath(`/admin/clientes/${id}`);
   return { ok: "Dados salvos." };
@@ -69,11 +87,20 @@ export async function deleteClientNote(form: FormData) {
 export async function anonymizeClient(form: FormData) {
   const admin = await requireAdmin();
   const id = String(form.get("id") ?? "");
+  const bookings = await prisma.booking.findMany({ where: { clientId: id }, select: { id: true } });
+  const bookingIds = bookings.map((b) => b.id);
+
   await prisma.$transaction([
     prisma.clientNote.deleteMany({ where: { clientId: id } }),
     prisma.booking.updateMany({
       where: { clientId: id },
       data: { allergyDetails: null, isAllergic: false, isPregnant: false, clientNotes: null },
+    }),
+    // As avaliações publicadas no site guardam o primeiro nome da cliente:
+    // sem isto, o nome dela continuaria visível depois do pedido de exclusão.
+    prisma.review.updateMany({
+      where: { bookingId: { in: bookingIds } },
+      data: { clientName: "Cliente" },
     }),
     prisma.client.update({
       where: { id },
@@ -81,5 +108,7 @@ export async function anonymizeClient(form: FormData) {
     }),
   ]);
   await audit(admin.id, "CLIENTE_ANONIMIZADA", "cliente", id);
+  revalidatePath("/", "layout");
+  revalidateTag(SITE_TAG, { expire: 0 }); // as avaliações do site acabaram de mudar
   redirect("/admin/clientes");
 }

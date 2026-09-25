@@ -2,14 +2,15 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { canClientCancel } from "@/lib/booking";
-import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { clientIp, sharedRateLimit } from "@/lib/rate-limit";
 
-export async function POST(_req: Request, { params }: { params: { token: string } }) {
-  if (!rateLimit(`cancel:${clientIp()}`, 10, 10 * 60_000)) {
+export async function POST(_req: Request, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
+  if (!(await sharedRateLimit(`cancel:${await clientIp()}`, 10, 10 * 60_000))) {
     return NextResponse.json({ error: "Muitas tentativas. Aguarde alguns minutos." }, { status: 429 });
   }
   const s = await getSettings();
-  const b = await prisma.booking.findUnique({ where: { token: params.token } });
+  const b = await prisma.booking.findUnique({ where: { token } });
   if (!b) return NextResponse.json({ error: "Reserva não encontrada." }, { status: 404 });
   if (!canClientCancel(b, s.cancelMinHours)) {
     return NextResponse.json(

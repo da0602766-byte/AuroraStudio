@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { emailParaceValido, sugerirEmail, validarTelefone } from "@/lib/format";
 
 export type ServiceOption = {
   id: string;
@@ -85,12 +86,18 @@ export function BookingWizard(props: {
   const [consent, setConsent] = useState(false);
   const [website, setWebsite] = useState("");
 
+  // Verificação do domínio do e-mail, feita no servidor ao sair do campo.
+  const [emailChecando, setEmailChecando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const slotsCache = useRef<Record<string, Slot[]>>({});
 
   const service = props.services.find((s) => s.id === serviceId) ?? null;
+  // "gmail.con" passa em qualquer validação de formato e depois some: a
+  // confirmação nunca chega e ninguém descobre por quê.
+  const sugestaoEmail = sugerirEmail(email);
   const lastDate = addDays(props.today, props.windowDays);
 
   // Foco no título de cada etapa, para leitores de tela e teclado
@@ -105,10 +112,11 @@ export function BookingWizard(props: {
     const first = ymd(y, m, 1) < props.today ? props.today : ymd(y, m, 1);
     const last = ymd(y, m, daysIn(y, m)) > lastDate ? lastDate : ymd(y, m, daysIn(y, m));
     if (first > last) {
-      setDays({});
       return;
     }
     const ctrl = new AbortController();
+    // O estado representa a requisição iniciada por este próprio efeito.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDaysLoading(true);
     fetch(`/api/disponibilidade?servico=${serviceId}&de=${first}&ate=${last}`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
@@ -126,12 +134,18 @@ export function BookingWizard(props: {
   const loadSlots = useCallback(
     async (d: string) => {
       if (!serviceId) return;
+      const cacheKey = `${serviceId}:${d}`;
+      if (slotsCache.current[cacheKey]) {
+        setSlots(slotsCache.current[cacheKey]);
+        return;
+      }
       setSlotsLoading(true);
       setSlots(null);
       try {
         const r = await fetch(`/api/disponibilidade?servico=${serviceId}&data=${d}`, { cache: "no-store" });
         if (!r.ok) throw new Error();
         const data = (await r.json()) as { slots: Slot[] };
+        slotsCache.current[cacheKey] = data.slots;
         setSlots(data.slots);
       } catch {
         setError("Não foi possível carregar os horários. Tente novamente.");
@@ -175,18 +189,70 @@ export function BookingWizard(props: {
     loadSlots(d);
   }
 
+  /**
+   * Usa a mesma validação do servidor, em vez de uma versão frouxa aqui.
+   * Antes bastavam 10 dígitos: passavam DDD inexistente, telefone fixo (que
+   * não recebe WhatsApp) e número com todos os dígitos iguais — e a cliente
+   * só descobria que estava inalcançável quando ninguém a encontrava.
+   */
+  function erroDoCampo(campo: "name" | "phone" | "email"): string | null {
+    if (campo === "name") return name.trim().length < 2 ? "Informe seu nome." : null;
+    if (campo === "phone") {
+      const r = validarTelefone(phone);
+      return r.ok ? null : r.motivo;
+    }
+    if (!email.trim()) return null; // e-mail é opcional
+    return emailParaceValido(email) ? null : "Confira o e-mail: parece faltar algo.";
+  }
+
   function validateData() {
     const e: Record<string, string> = {};
-    if (name.trim().length < 2) e.name = "Informe seu nome.";
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length < 10) e.phone = "Informe seu WhatsApp com DDD.";
-    if (email && !/^\S+@\S+\.\S+$/.test(email)) e.email = "Confira o e-mail.";
+    for (const campo of ["name", "phone", "email"] as const) {
+      const erro = erroDoCampo(campo);
+      if (erro) e[campo] = erro;
+    }
     if (allergic === null) e.allergic = "Responda se você tem alguma alergia.";
     if (allergic && allergyDetails.trim().length < 2) e.allergyDetails = "Conte a que você tem alergia.";
     if (pregnant === null) e.pregnant = "Responda se você está gestante.";
     if (!consent) e.consent = "É preciso autorizar para continuar.";
     setFieldErrors(e);
     return Object.keys(e).length === 0;
+  }
+
+  /** Mostra o erro do campo ao sair dele, sem esperar o botão de continuar. */
+  function aoSair(campo: "name" | "phone" | "email") {
+    const erro = erroDoCampo(campo);
+    setFieldErrors((atuais) => {
+      const novos = { ...atuais };
+      if (erro) novos[campo] = erro;
+      else delete novos[campo];
+      return novos;
+    });
+    if (campo === "email" && !erro && email.trim()) conferirDominio(email.trim());
+  }
+
+  /**
+   * Pergunta ao servidor se o domínio do e-mail existe.
+   *
+   * O formato não basta: "maria@gmial.com" é impecável na forma e a
+   * mensagem simplesmente nunca chega. Quem decide de verdade é o servidor,
+   * na hora de gravar a reserva; isto aqui é só para avisar antes.
+   */
+  async function conferirDominio(valor: string) {
+    setEmailChecando(true);
+    try {
+      const r = await fetch(`/api/validar-email?email=${encodeURIComponent(valor)}`);
+      const d = await r.json();
+      // Se a cliente já mudou o campo, a resposta não vale mais.
+      if (valor !== email.trim()) return;
+      if (d && d.ok === false && d.motivo) {
+        setFieldErrors((atuais) => ({ ...atuais, email: d.motivo }));
+      }
+    } catch {
+      // Sem rede não dá para conferir: o servidor confere de novo ao reservar.
+    } finally {
+      setEmailChecando(false);
+    }
   }
 
   async function submit() {
@@ -220,7 +286,10 @@ export function BookingWizard(props: {
       if (r.status === 409) {
         setTime(null);
         setStep(2);
-        if (date) loadSlots(date);
+        if (date) {
+          delete slotsCache.current[`${service.id}:${date}`];
+          loadSlots(date);
+        }
       } else if (data.field && ["name", "phone", "email", "allergyDetails", "consent"].includes(data.field)) {
         setStep(3);
         setFieldErrors({ [data.field]: data.error });
@@ -411,18 +480,32 @@ export function BookingWizard(props: {
           >
             <div>
               <label htmlFor="nome" className="rotulo">Nome completo</label>
-              <input id="nome" className="campo" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} aria-invalid={!!fieldErrors.name} aria-describedby={fieldErrors.name ? "nome-erro" : undefined} />
+              <input id="nome" className="campo" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => aoSair("name")} aria-invalid={!!fieldErrors.name} aria-describedby={fieldErrors.name ? "nome-erro" : undefined} />
               {fieldErrors.name && <p id="nome-erro" className="erro">{fieldErrors.name}</p>}
             </div>
             <div>
               <label htmlFor="fone" className="rotulo">WhatsApp</label>
-              <input id="fone" className="campo" type="tel" inputMode="tel" autoComplete="tel-national" placeholder="(00) 00000-0000" value={phone} onChange={(e) => setPhone(maskPhone(e.target.value))} aria-invalid={!!fieldErrors.phone} aria-describedby={fieldErrors.phone ? "fone-erro" : undefined} />
+              <input id="fone" className="campo" type="tel" inputMode="tel" autoComplete="tel-national" placeholder="(00) 00000-0000" value={phone} onChange={(e) => setPhone(maskPhone(e.target.value))} onBlur={() => aoSair("phone")} aria-invalid={!!fieldErrors.phone} aria-describedby={fieldErrors.phone ? "fone-erro" : undefined} />
               {fieldErrors.phone && <p id="fone-erro" className="erro">{fieldErrors.phone}</p>}
             </div>
             <div>
               <label htmlFor="email" className="rotulo">E-mail <span className="font-normal text-marrom-claro">(opcional)</span></label>
-              <input id="email" className="campo" type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-invalid={!!fieldErrors.email} />
+              <input id="email" className="campo" type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => aoSair("email")} aria-invalid={!!fieldErrors.email} />
               {fieldErrors.email && <p className="erro">{fieldErrors.email}</p>}
+              {!fieldErrors.email && emailChecando && <p className="ajuda">Conferindo o e-mail…</p>}
+              {!fieldErrors.email && !emailChecando && sugestaoEmail && (
+                <p className="ajuda">
+                  Você quis dizer{" "}
+                  <button
+                    type="button"
+                    className="text-bordo underline underline-offset-4"
+                    onClick={() => setEmail(sugestaoEmail)}
+                  >
+                    {sugestaoEmail}
+                  </button>
+                  ?
+                </p>
+              )}
             </div>
 
             <fieldset>

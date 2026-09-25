@@ -1,11 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { bookingRequestSchema } from "@/lib/validators";
 import { BookingError, createBooking } from "@/lib/booking";
-import { normalizePhone } from "@/lib/format";
-import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { emailParaceValido, sugerirEmail, validarTelefone } from "@/lib/format";
+import { dominioRecebeEmail } from "@/lib/email-dns";
+import { clientIp, sharedRateLimit } from "@/lib/rate-limit";
+import { avisarNovaReserva } from "@/lib/notificacoes";
+import { alertarErro } from "@/lib/alerta";
 
 export async function POST(req: NextRequest) {
-  if (!rateLimit(`reserva:${clientIp()}`, 6, 10 * 60_000)) {
+  if (!(await sharedRateLimit(`reserva:${await clientIp()}`, 6, 10 * 60_000))) {
     return NextResponse.json({ error: "Muitas tentativas. Aguarde alguns minutos ou fale pelo WhatsApp." }, { status: 429 });
   }
 
@@ -22,8 +25,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: issue?.message ?? "Confira os dados.", field: issue?.path[0] }, { status: 400 });
   }
   const d = parsed.data;
-  const phone = normalizePhone(d.phone);
-  if (!phone) return NextResponse.json({ error: "Informe um WhatsApp com DDD.", field: "phone" }, { status: 400 });
+  // O e-mail é opcional, mas se vier precisa poder receber mensagem: é por
+  // ele que seguem a confirmação e o lembrete.
+  if (d.email) {
+    if (!emailParaceValido(d.email)) {
+      return NextResponse.json({ error: "Confira o e-mail: parece faltar algo.", field: "email" }, { status: 400 });
+    }
+    if ((await dominioRecebeEmail(d.email)) === false) {
+      const sugestao = sugerirEmail(d.email);
+      return NextResponse.json(
+        {
+          error: sugestao
+            ? `Esse endereço não existe. Você quis dizer ${sugestao}?`
+            : "Esse endereço de e-mail não existe. Confira o que vem depois do @.",
+          field: "email",
+        },
+        { status: 400 }
+      );
+    }
+  }
+
+  const tel = validarTelefone(d.phone);
+  if (!tel.ok) return NextResponse.json({ error: tel.motivo, field: "phone" }, { status: 400 });
+  const phone = tel.numero;
 
   try {
     const booking = await createBooking({
@@ -41,10 +65,14 @@ export async function POST(req: NextRequest) {
       source: "SITE",
       actor: "cliente",
     });
+    // Avisa a proprietária em segundo plano: o e-mail não pode atrasar nem
+    // derrubar a resposta para a cliente.
+    void avisarNovaReserva(booking.id);
+
     return NextResponse.json({ token: booking.token, code: booking.code }, { status: 201 });
   } catch (e) {
     if (e instanceof BookingError) return NextResponse.json({ error: e.message, field: "time" }, { status: 409 });
-    console.error("Erro ao criar reserva", e);
+    await alertarErro("criar reserva", e, { serviço: d.serviceId, data: d.date, hora: d.time });
     return NextResponse.json({ error: "Não foi possível concluir agora. Tente novamente em instantes." }, { status: 500 });
   }
 }

@@ -2,7 +2,7 @@
 
 Site do estúdio com agendamento sem cadastro, sinal via Pix e painel de gestão para a proprietária.
 
-**Tecnologia:** Next.js 14 (App Router) · TypeScript · Tailwind CSS · Prisma · PostgreSQL.
+**Tecnologia:** Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS · Prisma · PostgreSQL.
 
 ## O que já funciona (Fase 1 completa + partes das Fases 2 e 3)
 
@@ -54,15 +54,18 @@ Como o sinal funciona na Fase 1 (sem gateway):
 - Senha com bcrypt; sessão em cookie `httpOnly`; trocar a senha encerra as outras sessões.
 - Limite de tentativas no login, no agendamento e na consulta; campo-armadilha contra robôs.
 - Fotos verificadas pelo conteúdo do arquivo, não só pela extensão.
+- Sessão verificada com algoritmo fixo (HS256) e mesmo segredo mínimo na middleware e no servidor.
+- Cabeçalhos `Content-Security-Policy` e `Strict-Transport-Security`; painel e página da reserva com `no-store`.
+- Reabrir uma reserva ou confirmar o sinal de uma reserva cancelada refaz a checagem de conflito dentro da trava da agenda.
 
 ## Instalação local
 
-Requisitos: Node.js 18.18 ou mais novo e um banco PostgreSQL (local ou gratuito no Neon/Supabase).
+Requisitos: Node.js 20.9 ou mais novo e um banco PostgreSQL (local ou gratuito no Neon/Supabase).
 
 ```bash
 npm install
-cp .env.example .env        # preencha os valores
-npm run db:push             # cria as tabelas
+cp .env.example .env        # preencha os valores (as duas URLs do banco)
+npm run db:migrate          # cria as tabelas a partir das migrations
 npm run db:seed             # serviços, horários, regras e acesso da proprietária
 npm run dev                 # http://localhost:3000  e  http://localhost:3000/admin
 ```
@@ -71,17 +74,239 @@ Antes de publicar, confira:
 
 ```bash
 npm run typecheck
+npm run test
+npm run lint
 npm run build
 ```
 
-## Publicação (sugestão: Vercel + Neon + Vercel Blob)
+## Testes
 
-1. Crie o banco no [Neon](https://neon.tech) e copie a URL de conexão *pooled*.
-2. Envie o projeto para um repositório no GitHub e importe na [Vercel](https://vercel.com).
-3. Na Vercel, em **Storage**, crie um **Blob Store** e conecte ao projeto (isso cria `BLOB_READ_WRITE_TOKEN`).
-4. Em **Settings → Environment Variables**, cadastre `DATABASE_URL`, `AUTH_SECRET` (gere com `openssl rand -base64 48`) e `NEXT_PUBLIC_SITE_URL`.
-5. No computador, com a `DATABASE_URL` de produção no `.env`, rode `npm run db:push` e `npm run db:seed`.
-6. Faça o deploy e conecte o domínio.
+```bash
+npm run test          # roda uma vez
+npm run test:watch    # reexecuta ao salvar
+```
+
+Cobrem a lógica pura, que é onde um erro passa despercebido: conversão de fuso
+(`time.ts`), montagem da disponibilidade (`availability.ts`), dinheiro e
+telefone (`format.ts`) e o agrupamento dos horários exibidos (`schedule.ts`).
+Os testes de disponibilidade usam um banco de mentira, então rodam sem
+PostgreSQL. Ficam em `src/lib/__tests__/`, no runner do próprio Node.
+
+## Cache do site
+
+As páginas públicas são geradas uma vez e servidas prontas pelo CDN, em vez de
+montadas no servidor a cada clique. Quem decide isso é o `revalidate` do
+`(site)/layout.tsx`; páginas que precisam de dados ao vivo declaram
+`dynamic = "force-dynamic"` no próprio arquivo:
+
+| Página | Como é servida | Por quê |
+|---|---|---|
+| Inicial, privacidade, consulta | Pronta, do CDN | Conteúdo igual para todo mundo |
+| Cada serviço | Cache de 5 minutos | Abre qualquer novo serviço sem depender do próximo build |
+| Agendar | Cache de 5 minutos | Catálogo em cache; disponibilidade permanece em tempo real |
+| Galeria | Cache de 5 minutos | Cache separado por categoria e página |
+| Reserva pelo link | A cada pedido | Dados de uma cliente específica |
+
+Toda ação do painel chama `revalidatePath("/", "layout")` e `revalidateTag`,
+então a proprietária vê a alteração na hora. Os 5 minutos do `revalidate` são
+só a rede de segurança.
+
+As consultas também ficam guardadas (`src/lib/cache.ts`), o que ajuda as
+páginas dinâmicas. Ao criar uma consulta nova para o site público, use
+`cacheSite(...)` e garanta que a ação que altera esses dados passe por
+`revalidateSite()` / `done()`.
+
+## Sinal via Pix automático
+
+Sem configuração, o sinal é manual: o site mostra a chave Pix, a cliente
+avisa pelo WhatsApp e a proprietária confirma no painel.
+
+Com `MERCADOPAGO_ACCESS_TOKEN` cadastrado, o Pix passa a ser automático — QR
+Code gerado na hora e reserva confirmada sozinha em segundos. Os dois fluxos
+convivem: se a variável sair, o site volta ao manual sem quebrar nada.
+
+Para ligar:
+
+1. Crie a conta no [Mercado Pago](https://www.mercadopago.com.br) e pegue o
+   **access token** em Configurações → Credenciais.
+2. Em **Webhooks**, cadastre o endereço abaixo para o evento **Pagamentos**,
+   e copie a chave secreta que aparece:
+   ```
+   https://SEU-ENDERECO/api/pagamentos/mercadopago
+   ```
+3. Cadastre `MERCADOPAGO_ACCESS_TOKEN` e `MERCADOPAGO_WEBHOOK_SECRET` na
+   hospedagem e publique.
+
+### Como a confirmação é protegida
+
+O corpo do webhook vem da internet aberta e **nunca** é usado para decidir
+nada. Ele só informa qual pagamento mudou; o código então:
+
+1. confere a assinatura `x-signature` (HMAC-SHA256 sobre
+   `id:<id>;request-id:<req>;ts:<ts>;`);
+2. **reconsulta o pagamento na API do Mercado Pago** com o nosso token, e é
+   essa resposta que vale;
+3. exige que o valor bata com o sinal daquela reserva;
+4. usa o `reference` único do pagamento, então o mesmo aviso chegando duas
+   vezes não vira dois pagamentos;
+5. se a reserva tinha sido cancelada por falta de pagamento, refaz a
+   checagem de conflito antes de devolvê-la à agenda — e, se o horário já
+   tiver dono, registra um aviso no histórico em vez de criar reserva dupla.
+
+## Avisos por e-mail
+
+Sem `BREVO_API_KEY` o site funciona igual, só que em silêncio. Com ela ligada:
+
+| Quando | Quem recebe | O quê |
+|---|---|---|
+| Reserva nova pelo site | Proprietária | Cliente, serviço, horário, ficha de saúde e link do painel |
+| Todo dia às 18h | Proprietária | Atendimentos de amanhã, com link de WhatsApp pronto por cliente |
+| Todo dia às 18h | Cliente | Lembrete da véspera — só para quem deixou e-mail |
+| Erro no servidor | Proprietária | O erro, onde aconteceu e o contexto |
+
+O [Brevo](https://www.brevo.com) foi escolhido por aceitar um endereço comum
+(Gmail) como remetente, sem exigir domínio próprio, e dar 300 envios por dia
+no plano gratuito. Confirme o remetente em **Senders & IP** antes de usar.
+
+O lembrete vai para a proprietária com links de WhatsApp, e não direto para a
+cliente, porque o e-mail é opcional no agendamento: mensagem automática
+sozinha não alcançaria a maioria.
+
+### Alertas de erro
+
+`alertarErro()` registra no log e avisa por e-mail. Erros iguais são
+agrupados — números na mensagem são normalizados, então o mesmo erro com ids
+diferentes conta como um só. Cada erro distinto avisa no máximo uma vez por
+hora, com teto de 20 avisos por dia. Sem isso, uma falha que acontece a cada
+requisição mandaria centenas de e-mails e derrubaria a cota.
+
+Só os pontos que significam reserva ou dinheiro perdido disparam alerta.
+Falha ao apagar uma foto, por exemplo, continua só no log.
+
+## Pedido de avaliação
+
+Depois de concluir um atendimento, a página da reserva no painel mostra em
+destaque **Peça a avaliação**, com um botão que abre o WhatsApp com a
+mensagem pronta e o link de `/avaliar/[token]`. O botão fica no topo, junto
+das ações, porque é o que a proprietária quer fazer no instante seguinte a
+concluir — enterrado no fim da página, o passo seria esquecido.
+
+`/avaliar/[token]` é uma página dedicada, separada da página da reserva: a
+cliente abre o link já sabendo o que fazer e encontra a pergunta na primeira
+tela. Ela se adapta à situação:
+
+| Situação da reserva | O que a cliente vê |
+|---|---|
+| Concluída, sem avaliação | A pergunta e as estrelas |
+| Concluída, já avaliada | Agradecimento, sem o formulário |
+| Ainda vai acontecer | Aviso de que o link vale depois do atendimento |
+| Cancelada ou falta | Explicação de que não há o que avaliar |
+
+`reviewAskedAt` registra quando o pedido foi feito, para a proprietária saber
+de quem já cobrou e para o pedido automático não insistir.
+
+Quem deixou e-mail também recebe o pedido sozinho, no dia seguinte ao
+atendimento, pela tarefa diária. Como o e-mail é opcional no agendamento,
+isso complementa o envio pelo WhatsApp em vez de substituí-lo.
+
+## Tarefas automáticas
+
+`netlify/functions/agendador.mts` chama `POST /api/tarefas` de hora em hora,
+autenticado por `CRON_SECRET`. A função não tem regra de negócio: toda a
+lógica fica no Next, para poder ser testada e mudar de hospedagem sem
+reescrever nada.
+
+- **Toda hora:** libera sinais vencidos. Antes isso só acontecia quando
+  alguém abria o site ou o painel — sem visita, o horário de uma reserva
+  morta ficava bloqueado.
+- **Às 18h:** envia os lembretes da véspera. `reminderSentAt` impede repetir
+  se a tarefa rodar duas vezes.
+
+Para disparar à mão durante um teste:
+
+```bash
+curl -X POST "https://SEU-ENDERECO/api/tarefas?lembretes=1" \
+  -H "authorization: Bearer $CRON_SECRET"
+```
+
+## Endereço do site
+
+`src/lib/site-url.ts` resolve o endereço público. Ele usa
+`NEXT_PUBLIC_SITE_URL` quando existe e, na falta dela, a variável `URL` que a
+Netlify publica sozinha — assim o site continua correto mesmo se o projeto for
+renomeado. **Na Netlify, o mais seguro é não cadastrar `NEXT_PUBLIC_SITE_URL`.**
+
+## Mudanças no banco
+
+O schema é versionado em `prisma/migrations`. Para mudar uma tabela, edite
+`prisma/schema.prisma` e rode `npx prisma migrate dev --name descricao-curta`:
+o Prisma gera o SQL, aplica no banco local e guarda o arquivo no repositório.
+Em produção, `npm run db:migrate` aplica o que ainda faltar.
+
+`npm run db:push` continua existindo para experimentar num banco descartável,
+mas não deixa registro — não use em produção.
+
+**Banco que já existe e foi criado com `db:push`:** marque a migration inicial
+como aplicada uma única vez, senão o Prisma tenta recriar tudo:
+
+```bash
+npx prisma migrate resolve --applied 0_init
+```
+
+## Publicação (Netlify + Neon + Cloudinary — tudo em plano gratuito)
+
+Somente o build de produção aplica migrations e o primeiro carregamento. Os
+Deploy Previews compilam o projeto sem alterar o banco:
+
+```
+npm run build:production
+```
+
+1. Crie o banco no [Neon](https://neon.tech) e copie as duas URLs de conexão
+   (Connect → Postgres database): a agrupada tem `-pooler` no endereço, a
+   direta não.
+2. Envie o projeto para um repositório no GitHub e importe na
+   [Netlify](https://netlify.com). O `netlify.toml` já traz o comando de build
+   e o plugin do Next.js.
+3. Crie uma conta no [Cloudinary](https://cloudinary.com) e pegue os três
+   valores em **Settings → API Keys**.
+4. Em **Site configuration → Environment variables**, cadastre:
+
+   | Variável | Onde obter |
+   |---|---|
+   | `DATABASE_URL` | Neon, conexão **com** `-pooler` |
+   | `DATABASE_URL_UNPOOLED` | Neon, conexão **sem** `-pooler` |
+   | `AUTH_SECRET` | Gere com `openssl rand -base64 48` |
+   | `NEXT_PUBLIC_SITE_URL` | O endereço do site, sem barra no final |
+   | `ADMIN_EMAIL` | Seu e-mail de acesso ao painel |
+   | `ADMIN_PASSWORD` | Senha do primeiro acesso, mínimo 10 caracteres |
+   | `ADMIN_NAME` | Seu nome |
+   | `CLOUDINARY_CLOUD_NAME` | Cloudinary |
+   | `CLOUDINARY_API_KEY` | Cloudinary |
+   | `CLOUDINARY_API_SECRET` | Cloudinary |
+
+5. Faça o deploy e conecte o domínio.
+6. Entre em `/admin`, troque a senha e preencha o conteúdo real.
+
+### Sobre os planos gratuitos
+
+Os três serviços permitem uso comercial no plano gratuito, ao contrário da
+Vercel, cujo plano Hobby é restrito a uso pessoal — um site que anuncia
+serviços e movimenta sinal não se enquadra ali.
+
+Para rodar na Vercel seria preciso o plano Pro, trocar o Cloudinary pelo Vercel
+Blob em `src/lib/storage.ts` e remover o `binaryTargets` do `schema.prisma`.
+
+Se alguma variável faltar, o deploy falha com erro em vez de publicar um site
+quebrado. É proposital.
+
+> O seed roda a cada publicação, mas só faz algo na primeira: depois que o
+> estúdio está configurado, ele não toca em nada. Um serviço removido pelo
+> painel não volta.
+
+> Deploys de preview não aplicam migrations nem executam o seed. Quando houver
+> um banco separado para previews, configure as variáveis no contexto
+> `deploy-preview` da Netlify.
 
 > Atenção: o plano gratuito (Hobby) da Vercel é apenas para uso não comercial. Para o site de um negócio, use o plano Pro ou outra hospedagem compatível com Next.js (Railway, Render, Netlify).
 

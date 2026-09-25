@@ -4,8 +4,9 @@ import { formatPhone } from "@/lib/format";
 import { fmt } from "@/lib/time";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 
-export default async function SearchPage({ searchParams }: { searchParams: { q?: string } }) {
-  const q = (searchParams.q ?? "").trim();
+export default async function SearchPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  const query = await searchParams;
+  const q = (query.q ?? "").trim();
   const digits = q.replace(/\D/g, "");
   const [clients, bookings] = q.length >= 2
     ? await Promise.all([

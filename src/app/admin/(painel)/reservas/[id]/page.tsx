@@ -8,35 +8,56 @@ import { waLink } from "@/lib/whatsapp";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { SubmitButton } from "@/components/admin/Buttons";
 import { ActionForm } from "@/components/admin/ActionForm";
+import { BotaoPedirAvaliacao } from "@/components/admin/BotaoPedirAvaliacao";
 import { changeBookingStatus, confirmDeposit, registerPayment, reschedule } from "../../../actions/bookings";
+import { siteUrl } from "@/lib/site-url";
 
 const METHOD: Record<string, string> = { PIX: "Pix", CARTAO: "Cartão", DINHEIRO: "Dinheiro", OUTRO: "Outro" };
 const KIND: Record<string, string> = { SINAL: "Sinal", RESTANTE: "Restante", INTEGRAL: "Integral" };
+const PAY_STATUS: Record<string, string> = { PENDENTE: "aguardando", RECUSADO: "recusado", CANCELADO: "cancelado", REEMBOLSADO: "reembolsado" };
 
-export default async function BookingDetail({ params }: { params: { id: string } }) {
+export default async function BookingDetail({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const b = await prisma.booking.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       client: true,
       service: true,
       payments: { orderBy: { createdAt: "asc" } },
       events: { orderBy: { createdAt: "desc" } },
+      review: true,
     },
   });
   if (!b) notFound();
   const s = await getSettings();
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
+  const base = siteUrl();
   const remaining = Math.max(0, b.priceCents - b.paidCents);
+  // Só conta como sinal recebido o pagamento que de fato entrou: o Pix
+  // gerado e não pago fica PENDENTE e não pode virar desconto.
+  const sinalRecebido = b.depositCents > 0 && b.payments.some((p) => p.kind === "SINAL" && p.status === "PAGO");
   const active = b.status === "AGUARDANDO_PAGAMENTO" || b.status === "CONFIRMADO";
   const when = fmt(b.startsAt, "EEEE, dd/MM 'às' HH:mm");
 
   const msgs = [
     { label: "Lembrete", text: `Olá, ${firstName(b.client.name)}! Passando para lembrar do seu horário de ${b.service.name} ${when}. Até lá!` },
-    { label: "Confirmação", text: `Olá, ${firstName(b.client.name)}! Sua reserva de ${b.service.name} ${when} está confirmada. Detalhes: ${siteUrl}/reserva/${b.token}` },
+    {
+      label: "Confirmação",
+      text:
+        `Olá, ${firstName(b.client.name)}! Sua reserva de ${b.service.name} ${when} está confirmada.` +
+        (sinalRecebido && remaining > 0
+          ? ` O sinal de ${brl(b.depositCents)} já está descontado: no dia fica ${brl(remaining)}.`
+          : "") +
+        ` Detalhes: ${base}/reserva/${b.token}`,
+    },
     ...(b.status === "AGUARDANDO_PAGAMENTO"
       ? [{ label: "Cobrar sinal", text: `Olá, ${firstName(b.client.name)}! Para confirmar seu horário de ${b.service.name} ${when}, falta o sinal de ${brl(b.depositCents)} via Pix${s.pixKey ? ` (chave: ${s.pixKey})` : ""}.` }]
       : []),
   ];
+
+  const waAvaliacao = waLink(
+    b.client.phone,
+    `Olá, ${firstName(b.client.name)}! Espero que tenha gostado do resultado. Se puder, deixe sua avaliação aqui: ${base}/avaliar/${b.token}`
+  );
 
   return (
     <div className="space-y-6">
@@ -65,14 +86,55 @@ export default async function BookingDetail({ params }: { params: { id: string }
       <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
         <div className="space-y-6">
           {/* Ações principais */}
+          {/*
+            * O pedido de avaliação fica aqui, e não junto das mensagens lá
+            * embaixo, porque é o que a proprietária quer fazer no instante
+            * seguinte a concluir o atendimento — rolar a página inteira até
+            * achar o botão faria o passo ser esquecido.
+            */}
+          {b.status === "CONCLUIDO" && !b.review && waAvaliacao && (
+            <section className="rounded-2xl border border-ouro/50 bg-ouro-palido/40 p-5">
+              <h2 className="text-xl">Peça a avaliação</h2>
+              <p className="mt-1 text-[15px] text-marrom-medio">
+                {b.reviewAskedAt
+                  ? `Você já pediu em ${fmt(b.reviewAskedAt, "dd/MM 'às' HH:mm")}. A cliente ainda não respondeu.`
+                  : "Atendimento concluído. Envie o link para a cliente contar como foi."}
+              </p>
+              <div className="mt-4">
+                <BotaoPedirAvaliacao bookingId={b.id} href={waAvaliacao} jaPedido={!!b.reviewAskedAt} />
+              </div>
+            </section>
+          )}
+
+          {b.status === "CONCLUIDO" && b.review && (
+            <section className="painel-bloco">
+              <h2 className="text-xl">Avaliação da cliente</h2>
+              <p className="mt-2 text-lg text-ouro">
+                {"★".repeat(b.review.rating)}
+                <span className="text-marrom-claro">{"☆".repeat(5 - b.review.rating)}</span>
+              </p>
+              <p className="mt-2 text-[15px] leading-relaxed text-marrom-medio">“{b.review.comment}”</p>
+              <p className="mt-3 text-sm text-marrom-claro">
+                {b.review.status === "PENDENTE"
+                  ? "Aguardando sua aprovação para aparecer no site."
+                  : b.review.status === "APROVADO"
+                    ? "Publicada no site."
+                    : "Rejeitada — não aparece no site."}{" "}
+                <Link href="/admin/avaliacoes" className="text-bordo underline underline-offset-4">
+                  Ver em Avaliações
+                </Link>
+              </p>
+            </section>
+          )}
+
           <section className="painel-bloco space-y-4">
             <h2 className="text-xl">Ações</h2>
             <div className="flex flex-wrap gap-2">
               {b.status === "AGUARDANDO_PAGAMENTO" && b.depositCents > 0 && (
-                <form action={confirmDeposit}>
+                <ActionForm action={confirmDeposit}>
                   <input type="hidden" name="id" value={b.id} />
                   <SubmitButton className="btn-primario btn-pequeno" pendingText="Confirmando…">Recebi o sinal de {brl(b.depositCents)}</SubmitButton>
-                </form>
+                </ActionForm>
               )}
               {b.status === "AGUARDANDO_PAGAMENTO" && (
                 <StatusForm id={b.id} action="confirmar" label="Confirmar sem sinal" />
@@ -89,7 +151,7 @@ export default async function BookingDetail({ params }: { params: { id: string }
             </div>
 
             {active && (
-              <form action={changeBookingStatus} className="flex flex-col gap-2 border-t border-linha pt-4 sm:flex-row sm:items-end">
+              <ActionForm action={changeBookingStatus} className="flex flex-col gap-2 border-t border-linha pt-4 sm:flex-row sm:items-end">
                 <input type="hidden" name="id" value={b.id} />
                 <input type="hidden" name="action" value="cancelar" />
                 <div className="flex-1">
@@ -99,7 +161,7 @@ export default async function BookingDetail({ params }: { params: { id: string }
                 <SubmitButton className="btn-contorno btn-pequeno" pendingText="Cancelando…" confirm="Cancelar esta reserva e liberar o horário?">
                   Cancelar
                 </SubmitButton>
-              </form>
+              </ActionForm>
             )}
           </section>
 
@@ -134,17 +196,42 @@ export default async function BookingDetail({ params }: { params: { id: string }
               <div><dt className="text-marrom-medio">Pago</dt><dd className="font-medium">{brl(b.paidCents)}</dd></div>
               <div><dt className="text-marrom-medio">Restante</dt><dd className="font-medium">{brl(remaining)}</dd></div>
             </dl>
+            {/*
+              * Assim que o sinal entra, o sistema avisa aqui que ele já pode
+              * ser descontado e deixa o campo abaixo com o valor certo. É uma
+              * sugestão: o valor continua editável, então ela pode cobrar o
+              * total se combinar diferente com a cliente.
+              */}
+            {sinalRecebido && (
+              <p className="mt-3 rounded-xl border border-ouro/50 bg-ouro-palido/40 p-3 text-sm leading-relaxed">
+                {remaining > 0 ? (
+                  <>
+                    Sinal de <strong>{brl(b.depositCents)}</strong> já recebido. Sugestão: descontar do total e cobrar{" "}
+                    <strong>{brl(remaining)}</strong> no atendimento — é o valor que já vem preenchido abaixo. Se preferir
+                    cobrar outro valor, é só trocar.
+                  </>
+                ) : (
+                  <>
+                    Sinal de <strong>{brl(b.depositCents)}</strong> recebido e reserva já quitada. Nada a cobrar no
+                    atendimento.
+                  </>
+                )}
+              </p>
+            )}
             {b.payments.length > 0 && (
               <ul className="mt-4 divide-y divide-linha text-sm">
                 {b.payments.map((p) => (
                   <li key={p.id} className="flex justify-between py-2">
-                    <span>{KIND[p.kind]} · {METHOD[p.method]} · {fmt(p.createdAt, "dd/MM/yy HH:mm")}</span>
-                    <span className="font-medium">{brl(p.amountCents)}</span>
+                    <span>
+                      {KIND[p.kind]} · {METHOD[p.method]} · {fmt(p.createdAt, "dd/MM/yy HH:mm")}
+                      {p.status !== "PAGO" && <span className="text-marrom-claro"> · {PAY_STATUS[p.status] ?? p.status.toLowerCase()}</span>}
+                    </span>
+                    <span className={p.status === "PAGO" ? "font-medium" : "text-marrom-claro"}>{brl(p.amountCents)}</span>
                   </li>
                 ))}
               </ul>
             )}
-            <form action={registerPayment} className="mt-4 grid gap-3 border-t border-linha pt-4 sm:grid-cols-4 sm:items-end">
+            <ActionForm action={registerPayment} className="mt-4 grid gap-3 border-t border-linha pt-4 sm:grid-cols-4 sm:items-end">
               <input type="hidden" name="id" value={b.id} />
               <div>
                 <label htmlFor="amount" className="rotulo">Valor recebido</label>
@@ -163,7 +250,7 @@ export default async function BookingDetail({ params }: { params: { id: string }
                 </select>
               </div>
               <SubmitButton className="btn-contorno btn-pequeno" pendingText="Registrando…">Registrar pagamento</SubmitButton>
-            </form>
+            </ActionForm>
           </section>
         </div>
 
@@ -200,7 +287,7 @@ export default async function BookingDetail({ params }: { params: { id: string }
               ))}
             </ol>
             <p className="mt-4 text-xs text-marrom-claro">
-              Link da cliente: <span className="break-all">{siteUrl}/reserva/{b.token}</span>
+              Link da cliente: <span className="break-all">{base}/reserva/{b.token}</span>
             </p>
           </section>
         </div>
@@ -211,12 +298,12 @@ export default async function BookingDetail({ params }: { params: { id: string }
 
 function StatusForm({ id, action, label, primary, confirm }: { id: string; action: string; label: string; primary?: boolean; confirm?: string }) {
   return (
-    <form action={changeBookingStatus}>
+    <ActionForm action={changeBookingStatus}>
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="action" value={action} />
       <SubmitButton className={`${primary ? "btn-primario" : "btn-contorno"} btn-pequeno`} pendingText="Salvando…" confirm={confirm}>
         {label}
       </SubmitButton>
-    </form>
+    </ActionForm>
   );
 }

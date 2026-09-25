@@ -25,26 +25,31 @@ export function occupyingWhere(now: Date): Prisma.BookingWhereInput {
 /** Cancela reservas cujo prazo para o sinal terminou, liberando o horário. */
 export async function expireStaleHolds(db: Db) {
   const now = new Date();
-  const stale = await db.booking.findMany({
-    where: { status: "AGUARDANDO_PAGAMENTO", holdExpiresAt: { lt: now } },
-    select: { id: true },
-  });
-  if (!stale.length) return;
-  const ids = stale.map((b) => b.id);
-  const res = await db.booking.updateMany({
-    where: { id: { in: ids }, status: "AGUARDANDO_PAGAMENTO", holdExpiresAt: { lt: now } },
-    data: { status: "CANCELADO", cancelledAt: now, cancelReason: "O prazo para pagamento do sinal terminou." },
-  });
-  if (res.count) {
+  // Uma única operação atômica substitui o antigo laço N+1. O RETURNING
+  // garante que só criamos histórico para reservas realmente alteradas.
+  const expired = await db.$queryRaw<{ id: string }[]>`
+    UPDATE "Booking"
+       SET "status" = 'CANCELADO',
+           "cancelledAt" = ${now},
+           "cancelReason" = 'O prazo para pagamento do sinal terminou.',
+           "updatedAt" = ${now}
+     WHERE "status" = 'AGUARDANDO_PAGAMENTO'
+       AND "holdExpiresAt" < ${now}
+    RETURNING "id"
+  `;
+
+  if (expired.length) {
     await db.bookingEvent.createMany({
-      data: ids.map((bookingId) => ({
-        bookingId,
+      data: expired.map(({ id }) => ({
+        bookingId: id,
         type: "EXPIRADA",
         message: "Reserva cancelada automaticamente: o sinal não foi informado dentro do prazo.",
         actor: "sistema",
       })),
     });
   }
+
+  return expired.length;
 }
 
 /** Verifica se o intervalo conflita com reservas ou bloqueios. */

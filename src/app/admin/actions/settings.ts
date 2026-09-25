@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
+import { SITE_TAG } from "@/lib/cache";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { audit } from "@/lib/audit";
@@ -18,6 +19,7 @@ const int = (v: FormDataEntryValue | null, min: number, max: number) => {
 
 function done(msg: string): FormResult {
   revalidatePath("/", "layout");
+  revalidateTag(SITE_TAG, { expire: 0 }); // derruba o cache das consultas do site
   return { ok: msg };
 }
 
@@ -125,7 +127,7 @@ export async function saveFaq(form: FormData) {
   if (id) await prisma.faq.update({ where: { id }, data: { question, answer, order } });
   else await prisma.faq.create({ data: { question, answer, order } });
   await audit(admin.id, id ? "DUVIDA_EDITADA" : "DUVIDA_CRIADA", "faq", id);
-  revalidatePath("/", "layout");
+  done("");
 }
 
 export async function deleteFaq(form: FormData) {
@@ -133,5 +135,5 @@ export async function deleteFaq(form: FormData) {
   const id = String(form.get("id") ?? "");
   await prisma.faq.delete({ where: { id } }).catch(() => null);
   await audit(admin.id, "DUVIDA_REMOVIDA", "faq", id);
-  revalidatePath("/", "layout");
+  done("");
 }

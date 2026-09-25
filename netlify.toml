@@ -1,0 +1,27 @@
+# Publicação na Netlify.
+#
+# A produção aplica migrations antes de compilar; previews apenas validam o
+# código. As variáveis ficam em Site configuration → Environment variables.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+# Somente a publicação oficial aplica migrations. Deploy Previews compilam e
+# testam o projeto sem escrever no banco de produção.
+[context.production]
+  command = "npm run build:production"
+
+[build.environment]
+  # Fixar a versão evita que uma mudança no padrão da Netlify quebre o build.
+  # O `next` exige Node 20.9 ou mais novo.
+  NODE_VERSION = "22"
+
+# Os binários do Prisma para as funções (AWS Lambda) são declarados em
+# `binaryTargets`, no prisma/schema.prisma. Não use a variável
+# PRISMA_CLI_BINARY_TARGETS aqui: ela é de versões antigas do Prisma, não
+# aceita o valor "native", sobrepõe o schema e faz o `prisma generate`
+# falhar durante a instalação das dependências.
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

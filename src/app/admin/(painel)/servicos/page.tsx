@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { brl, durationLabel, priceLabel } from "@/lib/format";
+import { mediasPorServico } from "@/lib/reviews";
 import { SubmitButton } from "@/components/admin/Buttons";
+import { Stars } from "@/components/site/Stars";
 import { deleteCategory, saveCategory } from "@/app/admin/actions/catalog";
 
 export default async function ServicesAdmin() {
-  const [services, categories] = await Promise.all([
+  const [services, categories, medias] = await Promise.all([
     prisma.service.findMany({ include: { category: true }, orderBy: [{ active: "desc" }, { order: "asc" }] }),
     prisma.category.findMany({ orderBy: { order: "asc" }, include: { _count: { select: { services: true } } } }),
+    mediasPorServico(prisma),
   ]);
   return (
     <div className="space-y-6">
@@ -21,20 +24,29 @@ export default async function ServicesAdmin() {
         </p>
       )}
       <ul className="divide-y divide-linha rounded-2xl border border-linha bg-white">
-        {services.map((s) => (
-          <li key={s.id}>
-            <Link href={`/admin/servicos/${s.id}`} className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-po ${s.active ? "" : "opacity-60"}`}>
-              <span>
-                <span className="block font-medium">{s.name}{!s.active && <span className="ml-2 text-xs">(inativo)</span>}</span>
-                <span className="text-sm text-marrom-medio">{s.category?.name ?? "Sem categoria"} · {durationLabel(s.durationMinutes)}</span>
-              </span>
-              <span className="text-right">
-                {s.promoPriceCents ? <span className="mr-2 text-sm text-marrom-claro line-through">{brl(s.priceCents)}</span> : null}
-                <span className="font-medium">{priceLabel(s.promoPriceCents ?? s.priceCents)}</span>
-              </span>
-            </Link>
-          </li>
-        ))}
+        {services.map((s) => {
+          const media = medias[s.id];
+          return (
+            <li key={s.id}>
+              <Link href={`/admin/servicos/${s.id}`} className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-po ${s.active ? "" : "opacity-60"}`}>
+                <span>
+                  <span className="block font-medium">{s.name}{!s.active && <span className="ml-2 text-xs">(inativo)</span>}</span>
+                  <span className="text-sm text-marrom-medio">{s.category?.name ?? "Sem categoria"} · {durationLabel(s.durationMinutes)}</span>
+                  {media && (
+                    <span className="mt-1 flex items-center gap-1.5 text-sm text-marrom-claro">
+                      <Stars value={Math.round(media.media)} />
+                      {media.media.toFixed(1)} ({media.total})
+                    </span>
+                  )}
+                </span>
+                <span className="text-right">
+                  {s.promoPriceCents ? <span className="mr-2 text-sm text-marrom-claro line-through">{brl(s.priceCents)}</span> : null}
+                  <span className="font-medium">{priceLabel(s.promoPriceCents ?? s.priceCents)}</span>
+                </span>
+              </Link>
+            </li>
+          );
+        })}
       </ul>
 
       <section className="painel-bloco max-w-xl">

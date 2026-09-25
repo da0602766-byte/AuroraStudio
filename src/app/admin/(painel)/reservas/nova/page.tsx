@@ -6,13 +6,14 @@ import { ActionForm } from "@/components/admin/ActionForm";
 import { SubmitButton } from "@/components/admin/Buttons";
 import { createManualBooking } from "@/app/admin/actions/bookings";
 
-export default async function NewBookingPage({ searchParams }: { searchParams: { data?: string; hora?: string; cliente?: string } }) {
+export default async function NewBookingPage({ searchParams }: { searchParams: Promise<{ data?: string; hora?: string; cliente?: string }> }) {
+  const query = await searchParams;
   const [services, client] = await Promise.all([
     prisma.service.findMany({ orderBy: [{ active: "desc" }, { order: "asc" }] }),
-    searchParams.cliente ? prisma.client.findUnique({ where: { id: searchParams.cliente } }) : null,
+    query.cliente ? prisma.client.findUnique({ where: { id: query.cliente } }) : null,
   ]);
-  const date = isDateStr(searchParams.data) ? searchParams.data : todayLocal();
-  const time = isTimeStr(searchParams.hora) ? searchParams.hora : "";
+  const date = isDateStr(query.data) ? query.data : todayLocal();
+  const time = isTimeStr(query.hora) ? query.hora : "";
 
   return (
     <div className="max-w-2xl space-y-6">

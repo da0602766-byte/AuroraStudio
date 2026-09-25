@@ -5,16 +5,28 @@ import { durationLabel, effectivePrice, priceLabel } from "@/lib/format";
 import { todayLocal } from "@/lib/time";
 import { waLink } from "@/lib/whatsapp";
 import { BookingWizard, type ServiceOption } from "@/components/booking/BookingWizard";
+import { cacheSite } from "@/lib/cache";
 
 export const metadata: Metadata = { title: "Agendar horário", robots: { index: false } };
 
-export default async function BookPage({ searchParams }: { searchParams: { servico?: string } }) {
-  const s = await getSettings();
-  const services = await prisma.service.findMany({
-    where: { active: true },
-    orderBy: [{ category: { order: "asc" } }, { order: "asc" }],
-    include: { category: true },
-  });
+// Depende do dia de hoje e da disponibilidade ao vivo.
+export const dynamic = "force-dynamic";
+
+const loadBookingCatalog = cacheSite(async () => {
+  const [s, services] = await Promise.all([
+    getSettings(),
+    prisma.service.findMany({
+      where: { active: true },
+      orderBy: [{ category: { order: "asc" } }, { order: "asc" }],
+      include: { category: true },
+    }),
+  ]);
+  return { s, services };
+}, ["catalogo-do-agendamento"]);
+
+export default async function BookPage({ searchParams }: { searchParams: Promise<{ servico?: string }> }) {
+  const query = await searchParams;
+  const { s, services } = await loadBookingCatalog();
 
   const options: ServiceOption[] = services.map((sv) => ({
     id: sv.id,
@@ -37,7 +49,7 @@ export default async function BookPage({ searchParams }: { searchParams: { servi
       ) : (
         <BookingWizard
           services={options}
-          initialSlug={searchParams.servico ?? null}
+          initialSlug={query.servico ?? null}
           today={todayLocal()}
           windowDays={s.bookingWindowDays}
           cancelMinHours={s.cancelMinHours}

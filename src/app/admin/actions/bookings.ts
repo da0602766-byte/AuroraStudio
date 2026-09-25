@@ -6,12 +6,12 @@ import type { PaymentKind, PaymentMethod } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { audit } from "@/lib/audit";
-import { BookingError, createBooking, rescheduleBooking } from "@/lib/booking";
+import { assertSlotFree, BookingError, createBooking, lockAgenda, rescheduleBooking } from "@/lib/booking";
 import { getDefaultProfessional, getSettings } from "@/lib/settings";
 import { brl, normalizePhone, parseMoney } from "@/lib/format";
 import { isDateStr, isTimeStr, localToUtc, addDaysLocal } from "@/lib/time";
 
-type FormResult = { error?: string } | undefined;
+type FormResult = { error?: string; ok?: string } | undefined;
 
 export async function createManualBooking(_prev: FormResult, form: FormData): Promise<FormResult> {
   const admin = await requireAdmin();
@@ -46,14 +46,7 @@ export async function createManualBooking(_prev: FormResult, form: FormData): Pr
       initialStatus: form.get("awaitDeposit") === "on" ? "AGUARDANDO_PAGAMENTO" : "CONFIRMADO",
     });
     id = b.id;
-    if (form.get("awaitDeposit") === "on") {
-      const s = await getSettings();
-      const sv = await prisma.service.findUnique({ where: { id: serviceId } });
-      await prisma.booking.update({
-        where: { id },
-        data: { depositCents: sv?.depositCents ?? s.depositCents, holdExpiresAt: null },
-      });
-    }
+    // Sem aviso por e-mail: quem criou a reserva foi a própria proprietária.
     await audit(admin.id, "RESERVA_CRIADA_MANUAL", "reserva", id, { code: b.code });
   } catch (e) {
     if (e instanceof BookingError) return { error: e.message };
@@ -71,77 +64,135 @@ const ACTIONS = {
   reabrir: { status: "CONFIRMADO", label: "Reserva reaberta." },
 } as const;
 
-export async function changeBookingStatus(form: FormData) {
+const isAction = (v: string): v is keyof typeof ACTIONS => Object.prototype.hasOwnProperty.call(ACTIONS, v);
+
+export async function changeBookingStatus(_prev: FormResult, form: FormData): Promise<FormResult> {
   const admin = await requireAdmin();
   const id = String(form.get("id") ?? "");
-  const action = String(form.get("action") ?? "") as keyof typeof ACTIONS;
+  const action = String(form.get("action") ?? "");
+  // Só as cinco ações declaradas passam: sem isto, nomes herdados de Object
+  // (como "constructor") atravessariam a verificação abaixo.
+  if (!isAction(action)) return { error: "Ação desconhecida." };
   const cfg = ACTIONS[action];
   const b = await prisma.booking.findUnique({ where: { id } });
-  if (!b || !cfg) return;
+  if (!b) return { error: "Reserva não encontrada." };
 
   const s = await getSettings();
   const lateCancel =
     action === "cancelar" && b.startsAt.getTime() - Date.now() < s.cancelMinHours * 3600_000;
   const reason = String(form.get("reason") ?? "").trim();
 
-  await prisma.booking.update({
-    where: { id },
-    data: {
-      status: cfg.status,
-      holdExpiresAt: null,
-      ...(action === "cancelar"
-        ? { cancelledAt: new Date(), cancelReason: reason || "Cancelada pela administração.", lateCancel }
-        : {}),
-      ...(action === "reabrir" ? { cancelledAt: null, cancelReason: null, lateCancel: false } : {}),
-    },
-  });
-  await prisma.bookingEvent.create({
-    data: {
-      bookingId: id,
-      type: action.toUpperCase(),
-      message: cfg.label + (lateCancel ? " (fora do prazo)" : "") + (reason ? ` Motivo: ${reason}` : ""),
-      actor: admin.name,
-    },
-  });
+  try {
+    await prisma.$transaction(
+      async (tx) => {
+        // Reabrir devolve a reserva à agenda, então o horário precisa estar
+        // livre de novo: enquanto esteve cancelada, outra cliente pode tê-lo
+        // ocupado.
+        if (action === "reabrir") {
+          await lockAgenda(tx, b.professionalId);
+          await assertSlotFree(tx, b);
+        }
+        await tx.booking.update({
+          where: { id },
+          data: {
+            status: cfg.status,
+            holdExpiresAt: null,
+            ...(action === "cancelar"
+              ? { cancelledAt: new Date(), cancelReason: reason || "Cancelada pela administração.", lateCancel }
+              : {}),
+            ...(action === "reabrir" ? { cancelledAt: null, cancelReason: null, lateCancel: false } : {}),
+          },
+        });
+        await tx.bookingEvent.create({
+          data: {
+            bookingId: id,
+            type: action.toUpperCase(),
+            message: cfg.label + (lateCancel ? " (fora do prazo)" : "") + (reason ? ` Motivo: ${reason}` : ""),
+            actor: admin.name,
+          },
+        });
+      },
+      { timeout: 15_000, maxWait: 10_000 }
+    );
+  } catch (e) {
+    if (e instanceof BookingError) return { error: e.message };
+    throw e;
+  }
+
   await audit(admin.id, `RESERVA_${action.toUpperCase()}`, "reserva", id, { code: b.code });
   revalidatePath("/admin", "layout");
+  return undefined;
 }
 
 /** Confirma o recebimento do sinal (Pix manual) e confirma a reserva. */
-export async function confirmDeposit(form: FormData) {
+export async function confirmDeposit(_prev: FormResult, form: FormData): Promise<FormResult> {
   const admin = await requireAdmin();
   const id = String(form.get("id") ?? "");
   const b = await prisma.booking.findUnique({ where: { id } });
-  if (!b || b.depositCents <= 0) return;
-  await prisma.$transaction([
-    prisma.payment.create({
-      data: { bookingId: id, amountCents: b.depositCents, method: "PIX", kind: "SINAL", status: "PAGO" },
-    }),
-    prisma.booking.update({
-      where: { id },
-      data: {
-        paidCents: { increment: b.depositCents },
-        status: b.status === "AGUARDANDO_PAGAMENTO" || b.status === "CANCELADO" ? "CONFIRMADO" : b.status,
-        holdExpiresAt: null,
-        ...(b.status === "CANCELADO" ? { cancelledAt: null, cancelReason: null } : {}),
+  if (!b) return { error: "Reserva não encontrada." };
+  if (b.depositCents <= 0) return { error: "Esta reserva não tem sinal a receber." };
+  const revive = b.status === "AGUARDANDO_PAGAMENTO" || b.status === "CANCELADO";
+
+  try {
+    await prisma.$transaction(
+      async (tx) => {
+        // Confirmar o sinal de uma reserva cancelada a devolve à agenda, então
+        // vale a mesma checagem da reabertura.
+        if (b.status === "CANCELADO") {
+          await lockAgenda(tx, b.professionalId);
+          await assertSlotFree(tx, b);
+        }
+        await tx.payment.create({
+          data: { bookingId: id, amountCents: b.depositCents, method: "PIX", kind: "SINAL", status: "PAGO" },
+        });
+        await tx.booking.update({
+          where: { id },
+          data: {
+            paidCents: { increment: b.depositCents },
+            status: revive ? "CONFIRMADO" : b.status,
+            holdExpiresAt: null,
+            ...(b.status === "CANCELADO" ? { cancelledAt: null, cancelReason: null } : {}),
+          },
+        });
+        // O histórico já diz quanto sobra, para que o desconto do sinal não
+        // dependa de alguém refazer a conta na hora de cobrar.
+        const restante = Math.max(0, b.priceCents - b.paidCents - b.depositCents);
+        await tx.bookingEvent.create({
+          data: {
+            bookingId: id,
+            type: "SINAL_PAGO",
+            message:
+              `Sinal de ${brl(b.depositCents)} recebido via Pix.` +
+              (restante > 0 ? ` Descontando o sinal, restam ${brl(restante)} para o atendimento.` : " Reserva quitada."),
+            actor: admin.name,
+          },
+        });
       },
-    }),
-    prisma.bookingEvent.create({
-      data: { bookingId: id, type: "SINAL_PAGO", message: `Sinal de ${brl(b.depositCents)} recebido via Pix.`, actor: admin.name },
-    }),
-  ]);
+      { timeout: 15_000, maxWait: 10_000 }
+    );
+  } catch (e) {
+    if (e instanceof BookingError) return { error: e.message };
+    throw e;
+  }
+
   await audit(admin.id, "PAGAMENTO_MANUAL", "reserva", id, { valor: b.depositCents, tipo: "SINAL" });
   revalidatePath("/admin", "layout");
+  return undefined;
 }
 
-export async function registerPayment(form: FormData) {
+export async function registerPayment(_prev: FormResult, form: FormData): Promise<FormResult> {
   const admin = await requireAdmin();
   const id = String(form.get("id") ?? "");
   const amount = parseMoney(form.get("amount"));
   const method = String(form.get("method") ?? "PIX") as PaymentMethod;
   const kind = String(form.get("kind") ?? "RESTANTE") as PaymentKind;
-  if (!amount || amount <= 0 || !["PIX", "CARTAO", "DINHEIRO", "OUTRO"].includes(method)) return;
-  if (!["SINAL", "RESTANTE", "INTEGRAL"].includes(kind)) return;
+  if (!amount || amount <= 0) return { error: "Informe um valor maior que zero." };
+  if (!["PIX", "CARTAO", "DINHEIRO", "OUTRO"].includes(method)) return { error: "Forma de pagamento inválida." };
+  if (!["SINAL", "RESTANTE", "INTEGRAL"].includes(kind)) return { error: "Tipo de pagamento inválido." };
+  // Sem esta conferência, um id inexistente derruba a página com erro 500.
+  if (!(await prisma.booking.findUnique({ where: { id }, select: { id: true } }))) {
+    return { error: "Reserva não encontrada." };
+  }
   await prisma.$transaction([
     prisma.payment.create({ data: { bookingId: id, amountCents: amount, method, kind, status: "PAGO" } }),
     prisma.booking.update({ where: { id }, data: { paidCents: { increment: amount } } }),
@@ -151,6 +202,7 @@ export async function registerPayment(form: FormData) {
   ]);
   await audit(admin.id, "PAGAMENTO_MANUAL", "reserva", id, { valor: amount, method, kind });
   revalidatePath("/admin", "layout");
+  return undefined;
 }
 
 export async function reschedule(_prev: FormResult, form: FormData): Promise<FormResult> {
@@ -204,5 +256,21 @@ export async function deleteBlock(form: FormData) {
   const id = String(form.get("id") ?? "");
   await prisma.timeBlock.delete({ where: { id } }).catch(() => null);
   await audit(admin.id, "BLOQUEIO_REMOVIDO", "bloqueio", id);
+  revalidatePath("/admin", "layout");
+}
+
+/**
+ * Registra que a avaliação foi pedida.
+ *
+ * Chamada quando a proprietária toca em "Pedir avaliação": serve para ela
+ * saber de quem já cobrou e para o pedido automático não insistir com quem
+ * já recebeu.
+ */
+export async function marcarAvaliacaoPedida(bookingId: string): Promise<void> {
+  await requireAdmin();
+  await prisma.booking.updateMany({
+    where: { id: bookingId, reviewAskedAt: null },
+    data: { reviewAskedAt: new Date() },
+  });
   revalidatePath("/admin", "layout");
 }

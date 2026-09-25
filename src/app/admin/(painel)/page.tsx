@@ -8,6 +8,7 @@ import { waLink } from "@/lib/whatsapp";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { SubmitButton } from "@/components/admin/Buttons";
 import { confirmDeposit } from "../actions/bookings";
+import { ActionForm } from "@/components/admin/ActionForm";
 
 export default async function Dashboard() {
   await expireStaleHolds(prisma);
@@ -17,7 +18,7 @@ export default async function Dashboard() {
   const monthStart = localToUtc(`${today.slice(0, 7)}-01`, "00:00");
   const now = new Date();
 
-  const [todayList, next, awaiting, paidMonth, doneMonth, cancelMonth, noShowMonth, newClients, freeSlots, returns] =
+  const [todayList, next, awaiting, metrics, freeSlots, returns] =
     await Promise.all([
       prisma.booking.findMany({
         where: { startsAt: { gte: dayStart, lt: dayEnd }, status: { not: "CANCELADO" } },
@@ -25,21 +26,26 @@ export default async function Dashboard() {
         orderBy: { startsAt: "asc" },
       }),
       prisma.booking.findFirst({
-        where: { startsAt: { gte: now }, status: { in: ["CONFIRMADO", "AGUARDANDO_PAGAMENTO"] } },
+        where: {
+          startsAt: { gte: now },
+          OR: [
+            { status: "CONFIRMADO" },
+            { status: "AGUARDANDO_PAGAMENTO", OR: [{ holdExpiresAt: null }, { holdExpiresAt: { gt: now } }] },
+          ],
+        },
         include: { client: true, service: true },
         orderBy: { startsAt: "asc" },
       }),
       prisma.booking.findMany({
-        where: { status: "AGUARDANDO_PAGAMENTO" },
+        where: {
+          status: "AGUARDANDO_PAGAMENTO",
+          OR: [{ holdExpiresAt: null }, { holdExpiresAt: { gt: now } }],
+        },
         include: { client: true, service: true },
         orderBy: [{ proofSentAt: { sort: "desc", nulls: "last" } }, { startsAt: "asc" }],
         take: 10,
       }),
-      prisma.payment.aggregate({ where: { status: "PAGO", createdAt: { gte: monthStart } }, _sum: { amountCents: true } }),
-      prisma.booking.count({ where: { status: "CONCLUIDO", startsAt: { gte: monthStart } } }),
-      prisma.booking.count({ where: { status: "CANCELADO", cancelledAt: { gte: monthStart } } }),
-      prisma.booking.count({ where: { status: "NAO_COMPARECEU", startsAt: { gte: monthStart } } }),
-      prisma.client.count({ where: { createdAt: { gte: monthStart } } }),
+      loadDashboardMetrics(monthStart),
       getSlotsForRange(prisma, {
         professionalId: pro.id,
         durationMinutes: 60,
@@ -70,11 +76,11 @@ export default async function Dashboard() {
 
       {/* Números do mês */}
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <Stat label="Recebido no mês" value={brl(paidMonth._sum.amountCents ?? 0)} />
-        <Stat label="Atendimentos" value={doneMonth} />
-        <Stat label="Clientes novas" value={newClients} />
-        <Stat label="Cancelamentos" value={cancelMonth} />
-        <Stat label="Faltas" value={noShowMonth} />
+        <Stat label="Recebido no mês" value={brl(metrics.paidCents)} />
+        <Stat label="Atendimentos" value={metrics.doneCount} />
+        <Stat label="Clientes novas" value={metrics.newClientCount} />
+        <Stat label="Cancelamentos" value={metrics.cancelCount} />
+        <Stat label="Faltas" value={metrics.noShowCount} />
       </dl>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -130,12 +136,12 @@ export default async function Dashboard() {
                       {b.proofSentAt ? " — comprovante informado" : b.holdExpiresAt ? ` — expira ${fmt(b.holdExpiresAt, "HH:mm")}` : ""}
                     </span>
                   </Link>
-                  <form action={confirmDeposit}>
+                  <ActionForm action={confirmDeposit}>
                     <input type="hidden" name="id" value={b.id} />
                     <SubmitButton className="btn-primario btn-pequeno" pendingText="Confirmando…">
                       Recebi {brl(b.depositCents)}
                     </SubmitButton>
-                  </form>
+                  </ActionForm>
                 </li>
               ))}
             </ul>
@@ -202,17 +208,49 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+async function loadDashboardMetrics(monthStart: Date) {
+  const [row] = await prisma.$queryRaw<
+    { paidCents: bigint; doneCount: bigint; cancelCount: bigint; noShowCount: bigint; newClientCount: bigint }[]
+  >`
+    SELECT
+      COALESCE((SELECT SUM("amountCents") FROM "Payment" WHERE "status" = 'PAGO' AND "createdAt" >= ${monthStart}), 0) AS "paidCents",
+      (SELECT COUNT(*) FROM "Booking" WHERE "status" = 'CONCLUIDO' AND "startsAt" >= ${monthStart}) AS "doneCount",
+      (SELECT COUNT(*) FROM "Booking" WHERE "status" = 'CANCELADO' AND "cancelledAt" >= ${monthStart}) AS "cancelCount",
+      (SELECT COUNT(*) FROM "Booking" WHERE "status" = 'NAO_COMPARECEU' AND "startsAt" >= ${monthStart}) AS "noShowCount",
+      (SELECT COUNT(*) FROM "Client" WHERE "createdAt" >= ${monthStart}) AS "newClientCount"
+  `;
+  return {
+    paidCents: Number(row?.paidCents ?? 0),
+    doneCount: Number(row?.doneCount ?? 0),
+    cancelCount: Number(row?.cancelCount ?? 0),
+    noShowCount: Number(row?.noShowCount ?? 0),
+    newClientCount: Number(row?.newClientCount ?? 0),
+  };
+}
+
 /** Clientes com retorno recomendado próximo (7 dias) ou atrasado, sem reserva futura. */
 async function returnsDue() {
   const now = new Date();
   const since = new Date(now.getTime() - 180 * 86400_000);
   const done = await prisma.booking.findMany({
     where: { status: "CONCLUIDO", startsAt: { gte: since }, service: { returnDaysMin: { not: null } } },
-    include: { client: true, service: true },
+    select: {
+      clientId: true,
+      startsAt: true,
+      client: { select: { name: true, phone: true } },
+      service: { select: { name: true, returnDaysMin: true, returnDaysMax: true } },
+    },
     orderBy: { startsAt: "desc" },
+    take: 250,
   });
   const future = await prisma.booking.findMany({
-    where: { startsAt: { gte: now }, status: { in: ["CONFIRMADO", "AGUARDANDO_PAGAMENTO"] } },
+    where: {
+      startsAt: { gte: now },
+      OR: [
+        { status: "CONFIRMADO" },
+        { status: "AGUARDANDO_PAGAMENTO", OR: [{ holdExpiresAt: null }, { holdExpiresAt: { gt: now } }] },
+      ],
+    },
     select: { clientId: true },
   });
   const hasFuture = new Set(future.map((f) => f.clientId));
@@ -231,4 +269,3 @@ async function returnsDue() {
   }
   return list.slice(0, 10);
 }
-
